@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="es" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Tablero LIDE</title>
+    <?!= include('AppCss'); ?>
+  </head>
+  <body>
+    <header class="app-header">
+      <h1>Tablero LIDE</h1>
+      <div class="actions">
+        <button id="btnTheme" class="btn">Tema</button>
+        <button id="btnNew" class="btn primary">+ Nueva tarea</button>
+        <button id="btnRefresh" class="btn">↻ Actualizar</button>
+      </div>
+    </header>
+
+    <main class="board" id="board">
+      <section class="column" data-status="Backlog">
+        <h2>Backlog</h2>
+        <div class="dropzone" data-status="Backlog" id="col-Backlog"></div>
+      </section>
+      <section class="column" data-status="In Progress">
+        <h2>En Progreso</h2>
+        <div class="dropzone" data-status="In Progress" id="col-In-Progress"></div>
+      </section>
+      <section class="column" data-status="Review">
+        <h2>Revisión</h2>
+        <div class="dropzone" data-status="Review" id="col-Review"></div>
+      </section>
+      <section class="column" data-status="Done">
+        <h2>Hecho</h2>
+        <div class="dropzone" data-status="Done" id="col-Done"></div>
+      </section>
+    </main>
+
+    <dialog id="taskModal">
+      <form id="taskForm" method="dialog">
+        <h3 id="modalTitle">Nueva tarea</h3>
+        <input type="hidden" id="taskId" />
+        <label>Título
+          <input id="title" placeholder="Ej. Preparar informe" required />
+        </label>
+        <label>Descripción
+          <textarea id="description" rows="3" placeholder="Detalles..."></textarea>
+        </label>
+        <div class="grid">
+          <label>Prioridad
+            <select id="priority">
+              <option value="High">Alta 🔴</option>
+              <option value="Medium" selected>Media 🟡</option>
+              <option value="Low">Baja 🟢</option>
+            </select>
+          </label>
+          <label>Asignar a
+            <input id="assignee" placeholder="Nombre o correo" />
+          </label>
+          <label>Estatus
+            <select id="status">
+              <option>Backlog</option>
+              <option>In Progress</option>
+              <option>Review</option>
+              <option>Done</option>
+            </select>
+          </label>
+        </div>
+        <menu class="modal-actions">
+          <button value="cancel" class="btn">Cancelar</button>
+          <button id="btnDelete" class="btn danger" type="button" style="display:none">Eliminar</button>
+          <button id="btnSave" class="btn primary" value="default" type="submit">Guardar</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <footer class="app-footer">Hecho con ❤️ para LIDE</footer>
+
+    <!-- Panel de depuración fijo -->
+    <pre id="debugPanel" aria-live="polite"></pre>
+
+    <?!= include('AppJs'); ?>
+  </body>
+</html>

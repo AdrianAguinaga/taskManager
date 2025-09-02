@@ -1,0 +1,378 @@
+<script>
+(() => {
+  const STATUSES = ['Backlog','In Progress','Review','Done'];
+  const STATUS_ALIASES = {
+    'backlog': 'Backlog',
+    'in progress': 'In Progress',
+    'in-progress': 'In Progress',
+    'progreso': 'In Progress',
+    'review': 'Review',
+    'revisión': 'Review',
+    'revision': 'Review',
+    'done': 'Done',
+    'hecho': 'Done'
+  };
+
+  const modal = document.getElementById('taskModal');
+  const form = document.getElementById('taskForm');
+  const btnNew = document.getElementById('btnNew');
+  const btnRefresh = document.getElementById('btnRefresh');
+  const btnDelete = document.getElementById('btnDelete');
+  const btnTheme = document.getElementById('btnTheme');
+  const modalTitle = document.getElementById('modalTitle');
+  const debugPanel = document.getElementById('debugPanel');
+
+  const columns = {
+    'Backlog':      document.getElementById('col-Backlog'),
+    'In Progress':  document.getElementById('col-In-Progress'),
+    'Review':       document.getElementById('col-Review'),
+    'Done':         document.getElementById('col-Done')
+  };
+
+  const $ = (sel, root = document) => root.querySelector(sel);
+  let tasks = [];
+
+  function normalizeStatus(s) {
+    const k = String(s || '').trim().toLowerCase();
+    return STATUS_ALIASES[k] || (STATUSES.includes(s) ? s : 'Backlog');
+  }
+
+  function setDebug(msg, obj) {
+    const time = new Date().toLocaleTimeString();
+    let content = `[${time}] ${msg}`;
+    
+    if (obj) {
+      if (typeof obj === 'object') {
+        content += `\n${JSON.stringify(obj, null, 2)}`;
+      } else {
+        content += `\n${obj}`;
+      }
+    }
+    
+    debugPanel.textContent = content;
+    console.log(msg, obj ?? '');
+  }
+
+  function toggleTheme() {
+    const html = document.documentElement;
+    html.setAttribute('data-theme', html.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+  }
+
+  // Inicialización cuando se carga la página
+  window.addEventListener('load', () => {
+    setDebug('Iniciando aplicación...');
+    
+    // Verificar que existan todos los contenedores
+    let missingContainers = [];
+    for (const s of STATUSES) {
+      if (!columns[s]) {
+        missingContainers.push(s);
+      }
+    }
+    
+    if (missingContainers.length > 0) {
+      setDebug(`Error: Faltan contenedores: ${missingContainers.join(', ')}`);
+      return;
+    }
+    
+    // Verificar que google.script esté disponible
+    if (typeof google === 'undefined' || !google.script) {
+      setDebug('Error: google.script no está disponible');
+      return;
+    }
+    
+    // Configurar event listeners
+    try {
+      btnTheme.addEventListener('click', toggleTheme);
+      btnNew.addEventListener('click', () => openModal());
+      btnRefresh.addEventListener('click', refresh);
+      btnDelete.addEventListener('click', onDelete);
+      form.addEventListener('submit', onSubmit);
+      
+      setDebug('Event listeners configurados correctamente');
+    } catch (error) {
+      setDebug('Error configurando event listeners', error.message);
+      return;
+    }
+    
+    // Inicializar datos
+    refresh();
+  });
+
+  function render() {
+    try {
+      setDebug(`Renderizando ${tasks.length} tareas`, tasks.slice(0, 2));
+      
+      // Limpiar columnas
+      Object.values(columns).forEach(col => {
+        if (col) col.innerHTML = '';
+      });
+
+      if (!Array.isArray(tasks) || tasks.length === 0) {
+        // Mensaje de vacío
+        for (const col of Object.values(columns)) {
+          if (!col) continue;
+          const emptyCard = document.createElement('div');
+          emptyCard.className = 'card';
+          emptyCard.innerHTML = `
+            <div class="title">Sin tareas</div>
+            <div class="desc">Crea una nueva con "+ Nueva tarea".</div>
+          `;
+          col.appendChild(emptyCard);
+        }
+        return;
+      }
+
+      // Renderizar tareas
+      let renderedCount = 0;
+      for (const t of tasks) {
+        try {
+          const status = normalizeStatus(t.status);
+          const card = buildCard({ ...t, status });
+          const target = columns[status] || columns['Backlog'];
+          
+          if (target) {
+            target.appendChild(card);
+            renderedCount++;
+          }
+        } catch (cardError) {
+          console.error('Error renderizando tarea:', t, cardError);
+        }
+      }
+      
+      setDebug(`${renderedCount} tareas renderizadas correctamente`);
+
+      // Configurar drag and drop
+      Object.values(columns).forEach(col => {
+        if (!col) return;
+        col.ondragover = (e) => { 
+          e.preventDefault(); 
+          col.classList.add('dragover'); 
+        };
+        col.ondragleave = () => col.classList.remove('dragover');
+        col.ondrop = (e) => onDrop(e, col);
+      });
+      
+    } catch (error) {
+      setDebug('Error en render', error.message);
+      console.error('Error completo en render:', error);
+    }
+  }
+
+  function buildCard(t) {
+    const el = document.createElement('article');
+    el.className = 'card';
+    el.draggable = true;
+    el.dataset.id = t.id;
+    
+    // Asegurar que todos los valores sean strings seguros
+    const safeTitle = escapeHtml(String(t.title || 'Sin título'));
+    const safeDescription = t.description ? escapeHtml(String(t.description)) : '';
+    const safePriority = String(t.priority || 'Medium');
+    const safeAssignee = String(t.assignee || '');
+    
+    el.innerHTML = `
+      <div class="meta">
+        <span class="badge">#${t.id}</span>
+        <span class="badge">
+          <span class="dot ${prioClass(safePriority)}"></span>${safePriority}
+        </span>
+        <span class="avatar" title="${escapeHtml(safeAssignee)}">${initials(safeAssignee)}</span>
+      </div>
+      <div class="title">${safeTitle}</div>
+      ${safeDescription ? `<div class="desc">${safeDescription}</div>` : ''}
+    `;
+    
+    el.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', String(t.id));
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    
+    el.addEventListener('dblclick', () => openModal(t));
+    return el;
+  }
+
+  function prioClass(p) {
+    const v = String(p || '').toLowerCase();
+    if (v === 'high') return 'high';
+    if (v === 'low') return 'low';
+    return 'medium';
+  }
+
+  function initials(name) {
+    if (!name) return '—';
+    const parts = String(name).trim().split(/\s+/).slice(0, 2);
+    return parts.map(p => (p[0] || '').toUpperCase()).join('');
+  }
+
+  function escapeHtml(s) {
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return String(s).replace(/[&<>"']/g, m => map[m]);
+  }
+
+  function onDrop(e, col) {
+    e.preventDefault();
+    const id = e.dataTransfer.getData('text/plain');
+    const status = columnToStatus(col);
+    col.classList.remove('dragover');
+
+    const card = document.querySelector(`.card[data-id="${id}"]`);
+    if (card) col.appendChild(card);
+
+    setDebug(`Moviendo tarea ${id} a ${status}`);
+
+    google.script.run
+      .withFailureHandler(err => { 
+        setDebug('Error al mover tarea', String(err));
+        alert('Error al mover la tarea: ' + err); 
+        refresh(); // Recargar para revertir cambio visual
+      })
+      .withSuccessHandler(() => {
+        setDebug(`Tarea ${id} movida correctamente a ${status}`);
+        refresh();
+      })
+      .apiMoveTask(Number(id), status);
+  }
+
+  function columnToStatus(col) {
+    for (const [status, node] of Object.entries(columns)) {
+      if (node === col) return status;
+    }
+    return 'Backlog';
+  }
+
+  function openModal(task = null) {
+    modal.showModal();
+    $('#taskId').value = task?.id || '';
+    $('#title').value = String(task?.title || '');
+    $('#description').value = String(task?.description || '');
+    $('#priority').value = String(task?.priority || 'Medium');
+    $('#assignee').value = String(task?.assignee || '');
+    $('#status').value = normalizeStatus(task?.status || 'Backlog');
+    modalTitle.textContent = task ? `Editar tarea #${task.id}` : 'Nueva tarea';
+    btnDelete.style.display = task ? '' : 'none';
+  }
+
+  function onSubmit(e) {
+    e.preventDefault();
+    const payload = {
+      id: Number($('#taskId').value || 0),
+      title: $('#title').value.trim(),
+      description: $('#description').value.trim(),
+      priority: $('#priority').value,
+      assignee: $('#assignee').value.trim(),
+      status: normalizeStatus($('#status').value)
+    };
+
+    if (!payload.title) { 
+      alert('El título es obligatorio'); 
+      return; 
+    }
+
+    const done = () => { 
+      modal.close(); 
+      refresh(); 
+    };
+
+    if (payload.id) {
+      // La lógica para ACTUALIZAR no cambia, no pide contraseña.
+      setDebug('Actualizando tarea', { id: payload.id, title: payload.title });
+      google.script.run
+        .withFailureHandler(err => { 
+          setDebug('Error al actualizar', String(err));
+          alert('Error al actualizar la tarea: ' + err); 
+        })
+        .withSuccessHandler(done)
+        .apiUpdateTask(payload);
+    } else {
+      // <-- INICIO DEL CAMBIO: Lógica para CREAR una tarea nueva
+      const userPassword = prompt('Por favor, ingresa la contraseña para crear la tarea:');
+
+      // Si el usuario presiona "Cancelar", no hacemos nada.
+      if (userPassword === null) {
+        return;
+      }
+      
+      setDebug('Creando tarea', { title: payload.title });
+
+      // Ahora enviamos un objeto que contiene la tarea y la contraseña
+      const dataToSend = {
+        task: payload,
+        password: userPassword
+      };
+
+      google.script.run
+        .withFailureHandler(err => { 
+          setDebug('Error al crear', String(err));
+          // El mensaje de "Contraseña incorrecta" se mostrará aquí
+          alert('Error al crear la tarea: ' + err); 
+        })
+        .withSuccessHandler(done)
+        .apiCreateTask(dataToSend); // Enviamos el nuevo objeto combinado
+      // <-- FIN DEL CAMBIO
+    }
+  }
+
+  function onDelete() {
+    const id = Number($('#taskId').value);
+    if (!id) return;
+    
+    if (!confirm('¿Estás seguro de que quieres eliminar esta tarea?')) return;
+    
+    setDebug(`Eliminando tarea ${id}`);
+    
+    google.script.run
+      .withFailureHandler(err => {
+        setDebug('Error al eliminar', String(err));
+        alert('Error al eliminar la tarea: ' + err);
+      })
+      .withSuccessHandler(() => {
+        setDebug(`Tarea ${id} eliminada correctamente`);
+        modal.close();
+        refresh();
+      })
+      .apiDeleteTask(id);
+  }
+
+  function refresh() {
+    setDebug('Iniciando refresh...');
+    
+    // Verificar que google.script esté disponible
+    if (typeof google === 'undefined' || !google.script || !google.script.run) {
+      setDebug('Error: google.script.run no disponible');
+      return;
+    }
+    
+    // Primero hacer ping
+    google.script.run
+      .withFailureHandler(err => {
+        setDebug('Error en ping', String(err));
+      })
+      .withSuccessHandler(() => {
+        setDebug('Ping exitoso, obteniendo tareas...');
+        
+        // Obtener tareas
+        google.script.run
+          .withFailureHandler(err => { 
+            setDebug('Error al obtener tareas', String(err));
+            alert('Error al cargar las tareas: ' + err); 
+          })
+          .withSuccessHandler(rows => {
+            setDebug('Datos recibidos del servidor', { count: Array.isArray(rows) ? rows.length : 0 });
+            
+            if (!Array.isArray(rows)) {
+              setDebug('Error: datos no son array', typeof rows);
+              tasks = [];
+            } else {
+              setDebug(`${rows.length} tareas recibidas`, rows.slice(0, 2));
+              tasks = rows;
+            }
+            
+            render();
+          })
+          .apiGetTasks();
+      })
+      .apiPing();
+  }
+})();
+</script>

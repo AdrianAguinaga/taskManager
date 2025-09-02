@@ -1,27 +1,25 @@
 <script>
+/**
+ * Tablero LIDE - Lógica del Frontend (Cliente)
+ * Este script se ejecuta en el navegador del usuario y maneja toda la interactividad:
+ * - Carga y renderiza las tareas.
+ * - Maneja el drag-and-drop.
+ * - Abre y gestiona el formulario modal.
+ * - Se comunica con el backend (Code.js) para guardar los cambios.
+ */
 (() => {
-  const STATUSES = ['Backlog','In Progress','Review','Done'];
-  const STATUS_ALIASES = {
-    'backlog': 'Backlog',
-    'in progress': 'In Progress',
-    'in-progress': 'In Progress',
-    'progreso': 'In Progress',
-    'review': 'Review',
-    'revisión': 'Review',
-    'revision': 'Review',
-    'done': 'Done',
-    'hecho': 'Done'
-  };
-
+  // --- VARIABLES GLOBALES Y SELECTORES DE ELEMENTOS ---
   const modal = document.getElementById('taskModal');
   const form = document.getElementById('taskForm');
   const btnNew = document.getElementById('btnNew');
   const btnRefresh = document.getElementById('btnRefresh');
   const btnDelete = document.getElementById('btnDelete');
   const btnTheme = document.getElementById('btnTheme');
-  const modalTitle = document.getElementById('modalTitle');
+  const btnCancel = document.getElementById('btnCancel');
+  const btnSelfAssign = document.getElementById('btnSelfAssign');
   const debugPanel = document.getElementById('debugPanel');
 
+  // Mapeo de columnas para un acceso rápido
   const columns = {
     'Backlog':      document.getElementById('col-Backlog'),
     'In Progress':  document.getElementById('col-In-Progress'),
@@ -29,230 +27,192 @@
     'Done':         document.getElementById('col-Done')
   };
 
+  // Alias para document.querySelector para un código más corto
   const $ = (sel, root = document) => root.querySelector(sel);
+  
+  // Array donde se almacenarán todas las tareas una vez cargadas
   let tasks = [];
 
-  function normalizeStatus(s) {
-    const k = String(s || '').trim().toLowerCase();
-    return STATUS_ALIASES[k] || (STATUSES.includes(s) ? s : 'Backlog');
-  }
-
-  function setDebug(msg, obj) {
-    const time = new Date().toLocaleTimeString();
-    let content = `[${time}] ${msg}`;
-    
-    if (obj) {
-      if (typeof obj === 'object') {
-        content += `\n${JSON.stringify(obj, null, 2)}`;
-      } else {
-        content += `\n${obj}`;
-      }
-    }
-    
-    debugPanel.textContent = content;
-    console.log(msg, obj ?? '');
-  }
-
-  function toggleTheme() {
-    const html = document.documentElement;
-    html.setAttribute('data-theme', html.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
-  }
-
-  // Inicialización cuando se carga la página
+  // =================================================================
+  // INICIALIZACIÓN DE LA APLICACIÓN
+  // =================================================================
+  
+  /**
+   * Se ejecuta una vez que toda la página se ha cargado.
+   */
   window.addEventListener('load', () => {
-    setDebug('Iniciando aplicación...');
+    setDebug('Aplicación iniciada.');
     
-    // Verificar que existan todos los contenedores
-    let missingContainers = [];
-    for (const s of STATUSES) {
-      if (!columns[s]) {
-        missingContainers.push(s);
-      }
-    }
-    
-    if (missingContainers.length > 0) {
-      setDebug(`Error: Faltan contenedores: ${missingContainers.join(', ')}`);
-      return;
-    }
-    
-    // Verificar que google.script esté disponible
-    if (typeof google === 'undefined' || !google.script) {
-      setDebug('Error: google.script no está disponible');
-      return;
-    }
-    
-    // Configurar event listeners
+    // Configura todos los event listeners para los botones y formularios.
     try {
       btnTheme.addEventListener('click', toggleTheme);
       btnNew.addEventListener('click', () => openModal());
       btnRefresh.addEventListener('click', refresh);
       btnDelete.addEventListener('click', onDelete);
+      btnCancel.addEventListener('click', () => modal.close());
       form.addEventListener('submit', onSubmit);
       
-      setDebug('Event listeners configurados correctamente');
+      // --- AÑADIR ESTE BLOQUE PARA EL NUEVO BOTÓN ---
+      const board = document.getElementById('board');
+      board.addEventListener('click', (e) => {
+        if (e.target.classList.contains('btn-assign')) {
+          const taskId = e.target.dataset.taskId;
+          quickAssign(taskId);
+        }
+      });
+      // --- FIN DEL BLOQUE ---
+
+      setDebug('Event listeners configurados.');
     } catch (error) {
-      setDebug('Error configurando event listeners', error.message);
+      setDebug('Error al configurar listeners', error.message);
       return;
     }
     
-    // Inicializar datos
+    // Carga las tareas por primera vez.
     refresh();
   });
 
-  function render() {
-    try {
-      setDebug(`Renderizando ${tasks.length} tareas`, tasks.slice(0, 2));
-      
-      // Limpiar columnas
-      Object.values(columns).forEach(col => {
-        if (col) col.innerHTML = '';
-      });
+  // =================================================================
+  // FUNCIONES PRINCIPALES (CARGA Y RENDERIZADO)
+  // =================================================================
 
-      if (!Array.isArray(tasks) || tasks.length === 0) {
-        // Mensaje de vacío
-        for (const col of Object.values(columns)) {
-          if (!col) continue;
-          const emptyCard = document.createElement('div');
-          emptyCard.className = 'card';
-          emptyCard.innerHTML = `
-            <div class="title">Sin tareas</div>
-            <div class="desc">Crea una nueva con "+ Nueva tarea".</div>
-          `;
-          col.appendChild(emptyCard);
-        }
-        return;
-      }
+  /**
+   * Pide las tareas al backend y, si tiene éxito, llama a render().
+   */
+  /**
+   * Pide un nombre y llama a la API para asignarse a una tarea sin abrir el modal.
+   */
+  function quickAssign(taskId) {
+    const nombre = prompt("Escribe tu nombre para asignarte a esta tarea:", "");
+    if (!nombre || !taskId) return;
 
-      // Renderizar tareas
-      let renderedCount = 0;
-      for (const t of tasks) {
-        try {
-          const status = normalizeStatus(t.status);
-          const card = buildCard({ ...t, status });
-          const target = columns[status] || columns['Backlog'];
-          
-          if (target) {
-            target.appendChild(card);
-            renderedCount++;
-          }
-        } catch (cardError) {
-          console.error('Error renderizando tarea:', t, cardError);
-        }
-      }
-      
-      setDebug(`${renderedCount} tareas renderizadas correctamente`);
+    setDebug(`Asignando a ${nombre} a la tarea #${taskId}...`);
 
-      // Configurar drag and drop
-      Object.values(columns).forEach(col => {
-        if (!col) return;
-        col.ondragover = (e) => { 
-          e.preventDefault(); 
-          col.classList.add('dragover'); 
-        };
-        col.ondragleave = () => col.classList.remove('dragover');
-        col.ondrop = (e) => onDrop(e, col);
-      });
-      
-    } catch (error) {
-      setDebug('Error en render', error.message);
-      console.error('Error completo en render:', error);
-    }
+    google.script.run
+      .withFailureHandler(err => {
+        alert('Error al intentar asignar la tarea: ' + err.message);
+      })
+      .withSuccessHandler(() => {
+        setDebug('Asignación rápida exitosa.');
+        refresh(); // Recarga el tablero para mostrar el nuevo asignado
+      })
+      .apiAssignTaskToUser(Number(taskId), nombre.trim());
   }
 
-  function buildCard(t) {
+
+  function refresh() {
+    setDebug('Actualizando tareas desde el servidor...');
+    google.script.run
+      .withFailureHandler(err => { 
+        setDebug('Error al obtener tareas', String(err));
+        alert('Error al cargar las tareas: ' + err); 
+      })
+      .withSuccessHandler(rows => {
+        if (!Array.isArray(rows)) {
+          setDebug('Error: los datos recibidos no son un array', typeof rows);
+          tasks = [];
+        } else {
+          tasks = rows;
+        }
+        render(); // Llama a la función para dibujar las tareas en pantalla
+      })
+      .apiGetTasks();
+  }
+
+  /**
+   * Dibuja las tareas en sus columnas correspondientes.
+   * Se llama cada vez que los datos de las tareas cambian.
+   */
+  function render() {
+    setDebug(`Renderizando ${tasks.length} tareas...`);
+    
+    // 1. Limpia todas las columnas antes de volver a dibujar.
+    Object.values(columns).forEach(col => { col.innerHTML = ''; });
+
+    // 2. Dibuja cada tarjeta de tarea en su columna.
+    if (tasks.length === 0) {
+        setDebug('No hay tareas para mostrar.');
+    } else {
+        tasks.forEach(task => {
+            const card = buildCard(task);
+            const targetColumn = columns[task.status] || columns['Backlog'];
+            if (targetColumn) {
+                targetColumn.appendChild(card);
+            }
+        });
+    }
+
+    // 3. Activa la funcionalidad de drag-and-drop en las columnas.
+    Object.values(columns).forEach(col => {
+      col.addEventListener('dragover', onDragOver);
+      col.addEventListener('dragleave', onDragLeave);
+      col.addEventListener('drop', onDrop);
+    });
+  }
+
+  /**
+   * Construye el elemento HTML para una sola tarjeta de tarea.
+   * @param {Object} t - El objeto de la tarea.
+   * @returns {HTMLElement} El elemento <article> de la tarjeta.
+   */
+function buildCard(t) {
     const el = document.createElement('article');
     el.className = 'card';
     el.draggable = true;
     el.dataset.id = t.id;
     
-    // Asegurar que todos los valores sean strings seguros
-    const safeTitle = escapeHtml(String(t.title || 'Sin título'));
-    const safeDescription = t.description ? escapeHtml(String(t.description)) : '';
-    const safePriority = String(t.priority || 'Medium');
-    const safeAssignee = String(t.assignee || '');
+    // Lógica para mostrar múltiples avatares (sin cambios)
+    let avatarsHtml = '<div class="avatars">';
+    if (t.assignee) {
+      const assignees = t.assignee.split(',').map(name => name.trim()).filter(Boolean);
+      assignees.forEach(name => {
+        avatarsHtml += `<span class="avatar" title="${escapeHtml(name)}">${initials(name)}</span>`;
+      });
+    } else {
+      avatarsHtml += `<span class="avatar-empty" title="Sin asignar"></span>`;
+    }
+    avatarsHtml += '</div>';
     
+    // --- INICIO DE LA MODIFICACIÓN ---
+    // Se añade un contenedor para las acciones de la tarjeta y el nuevo botón.
     el.innerHTML = `
-      <div class="meta">
-        <span class="badge">#${t.id}</span>
-        <span class="badge">
-          <span class="dot ${prioClass(safePriority)}"></span>${safePriority}
-        </span>
-        <span class="avatar" title="${escapeHtml(safeAssignee)}">${initials(safeAssignee)}</span>
+      <div class="card-header">
+        <div class="meta">
+          <span class="badge">#${t.id}</span>
+          <span class="badge">
+            <span class="dot ${prioClass(t.priority)}"></span>${t.priority}
+          </span>
+        </div>
+        <div class="card-actions">
+          ${avatarsHtml}
+          <button class="btn-assign" data-task-id="${t.id}" title="Asignarme a esta tarea">+</button>
+        </div>
       </div>
-      <div class="title">${safeTitle}</div>
-      ${safeDescription ? `<div class="desc">${safeDescription}</div>` : ''}
+      <div class="title">${escapeHtml(t.title)}</div>
+      ${t.description ? `<div class="desc">${escapeHtml(t.description)}</div>` : ''}
     `;
+    // --- FIN DE LA MODIFICACIÓN ---
     
     el.addEventListener('dragstart', e => {
       e.dataTransfer.setData('text/plain', String(t.id));
-      e.dataTransfer.effectAllowed = 'move';
     });
     
     el.addEventListener('dblclick', () => openModal(t));
     return el;
   }
+  // =================================================================
+  // MANEJADORES DE EVENTOS (Event Handlers)
+  // =================================================================
+  
+  /**
+   * Lógica de autoasignación: pide un nombre y lo agrega al campo de asignados.
+   * NO requiere contraseña.
+   */
 
-  function prioClass(p) {
-    const v = String(p || '').toLowerCase();
-    if (v === 'high') return 'high';
-    if (v === 'low') return 'low';
-    return 'medium';
-  }
-
-  function initials(name) {
-    if (!name) return '—';
-    const parts = String(name).trim().split(/\s+/).slice(0, 2);
-    return parts.map(p => (p[0] || '').toUpperCase()).join('');
-  }
-
-  function escapeHtml(s) {
-    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-    return String(s).replace(/[&<>"']/g, m => map[m]);
-  }
-
-  function onDrop(e, col) {
-    e.preventDefault();
-    const id = e.dataTransfer.getData('text/plain');
-    const status = columnToStatus(col);
-    col.classList.remove('dragover');
-
-    const card = document.querySelector(`.card[data-id="${id}"]`);
-    if (card) col.appendChild(card);
-
-    setDebug(`Moviendo tarea ${id} a ${status}`);
-
-    google.script.run
-      .withFailureHandler(err => { 
-        setDebug('Error al mover tarea', String(err));
-        alert('Error al mover la tarea: ' + err); 
-        refresh(); // Recargar para revertir cambio visual
-      })
-      .withSuccessHandler(() => {
-        setDebug(`Tarea ${id} movida correctamente a ${status}`);
-        refresh();
-      })
-      .apiMoveTask(Number(id), status);
-  }
-
-  function columnToStatus(col) {
-    for (const [status, node] of Object.entries(columns)) {
-      if (node === col) return status;
-    }
-    return 'Backlog';
-  }
-
-  function openModal(task = null) {
-    modal.showModal();
-    $('#taskId').value = task?.id || '';
-    $('#title').value = String(task?.title || '');
-    $('#description').value = String(task?.description || '');
-    $('#priority').value = String(task?.priority || 'Medium');
-    $('#assignee').value = String(task?.assignee || '');
-    $('#status').value = normalizeStatus(task?.status || 'Backlog');
-    modalTitle.textContent = task ? `Editar tarea #${task.id}` : 'Nueva tarea';
-    btnDelete.style.display = task ? '' : 'none';
-  }
-
+  /**
+   * Se ejecuta al enviar el formulario (botón "Guardar").
+   * Decide si crear una nueva tarea o actualizar una existente.
+   */
   function onSubmit(e) {
     e.preventDefault();
     const payload = {
@@ -261,118 +221,135 @@
       description: $('#description').value.trim(),
       priority: $('#priority').value,
       assignee: $('#assignee').value.trim(),
-      status: normalizeStatus($('#status').value)
+      status: $('#status').value
     };
 
-    if (!payload.title) { 
-      alert('El título es obligatorio'); 
+    if (!payload.title) {
+      alert('El título es obligatorio.'); 
       return; 
     }
+    
+    const userPassword = prompt('Por favor, ingresa la contraseña para guardar los cambios:');
+    if (userPassword === null) return;
 
-    const done = () => { 
-      modal.close(); 
-      refresh(); 
+    // Lógica para deshabilitar el botón y mostrar "Guardando..."
+    const saveButton = $('#btnSave');
+    const originalButtonText = saveButton.textContent;
+    saveButton.textContent = 'Guardando...';
+    saveButton.disabled = true;
+
+    const onFinish = (error = null) => {
+        saveButton.textContent = originalButtonText;
+        saveButton.disabled = false;
+        if (error) {
+            setDebug('Error en la operación', String(error));
+            alert('Error: ' + error);
+        } else {
+            modal.close();
+            refresh();
+        }
     };
-
+    
+    // Decide si llamar a la API de crear o actualizar.
     if (payload.id) {
-      // La lógica para ACTUALIZAR no cambia, no pide contraseña.
-      setDebug('Actualizando tarea', { id: payload.id, title: payload.title });
       google.script.run
-        .withFailureHandler(err => { 
-          setDebug('Error al actualizar', String(err));
-          alert('Error al actualizar la tarea: ' + err); 
-        })
-        .withSuccessHandler(done)
-        .apiUpdateTask(payload);
+        .withFailureHandler(onFinish)
+        .withSuccessHandler(() => onFinish())
+        .apiUpdateTask({ task: payload, password: userPassword });
     } else {
-      // <-- INICIO DEL CAMBIO: Lógica para CREAR una tarea nueva
-      const userPassword = prompt('Por favor, ingresa la contraseña para crear la tarea:');
-
-      // Si el usuario presiona "Cancelar", no hacemos nada.
-      if (userPassword === null) {
-        return;
-      }
-      
-      setDebug('Creando tarea', { title: payload.title });
-
-      // Ahora enviamos un objeto que contiene la tarea y la contraseña
-      const dataToSend = {
-        task: payload,
-        password: userPassword
-      };
-
       google.script.run
-        .withFailureHandler(err => { 
-          setDebug('Error al crear', String(err));
-          // El mensaje de "Contraseña incorrecta" se mostrará aquí
-          alert('Error al crear la tarea: ' + err); 
-        })
-        .withSuccessHandler(done)
-        .apiCreateTask(dataToSend); // Enviamos el nuevo objeto combinado
-      // <-- FIN DEL CAMBIO
+        .withFailureHandler(onFinish)
+        .withSuccessHandler(() => onFinish())
+        .apiCreateTask({ task: payload, password: userPassword });
     }
   }
 
+  /**
+   * Se ejecuta al hacer clic en el botón "Eliminar".
+   */
   function onDelete() {
     const id = Number($('#taskId').value);
-    if (!id) return;
+    if (!id || !confirm('¿Estás seguro de que quieres eliminar esta tarea?')) return;
     
-    if (!confirm('¿Estás seguro de que quieres eliminar esta tarea?')) return;
+    const userPassword = prompt('Por favor, ingresa la contraseña para ELIMINAR la tarea:');
+    if (userPassword === null) return;
     
-    setDebug(`Eliminando tarea ${id}`);
-    
+    setDebug(`Eliminando tarea ${id}...`);
     google.script.run
-      .withFailureHandler(err => {
-        setDebug('Error al eliminar', String(err));
-        alert('Error al eliminar la tarea: ' + err);
-      })
+      .withFailureHandler(err => alert('Error al eliminar: ' + err))
       .withSuccessHandler(() => {
-        setDebug(`Tarea ${id} eliminada correctamente`);
         modal.close();
         refresh();
       })
-      .apiDeleteTask(id);
+      .apiDeleteTask({ id: id, password: userPassword });
   }
 
-  function refresh() {
-    setDebug('Iniciando refresh...');
+  /**
+   * Abre el modal, ya sea vacío (para una nueva tarea) o con los datos de una tarea existente.
+   */
+  function openModal(task = null) {
+    form.reset(); // Limpia el formulario
+    $('#taskId').value = task?.id || '';
+    $('#title').value = task?.title || '';
+    $('#description').value = task?.description || '';
+    $('#priority').value = task?.priority || 'Medium';
+    $('#assignee').value = task?.assignee || '';
+    $('#status').value = task?.status || 'Backlog';
+    $('#modalTitle').textContent = task ? `Editar tarea #${task.id}` : 'Nueva tarea';
+    btnDelete.style.display = task ? 'inline-block' : 'none';
+    modal.showModal();
+  }
+
+  // --- LÓGICA DE DRAG AND DROP ---
+  function onDrop(e) {
+    e.preventDefault();
+    const id = e.dataTransfer.getData('text/plain');
+    const status = e.currentTarget.id.replace('col-', '').replace('-', ' ');
+    e.currentTarget.classList.remove('dragover');
+
+    // Mueve la tarjeta visualmente de inmediato para una mejor experiencia.
+    const card = $(`[data-id="${id}"]`);
+    if (card) e.currentTarget.appendChild(card);
     
-    // Verificar que google.script esté disponible
-    if (typeof google === 'undefined' || !google.script || !google.script.run) {
-      setDebug('Error: google.script.run no disponible');
-      return;
-    }
-    
-    // Primero hacer ping
+    // Llama al backend para guardar el cambio de estado.
     google.script.run
       .withFailureHandler(err => {
-        setDebug('Error en ping', String(err));
+        alert('Error al mover la tarea: ' + err); 
+        refresh(); // Si falla, recarga para revertir el cambio visual.
       })
-      .withSuccessHandler(() => {
-        setDebug('Ping exitoso, obteniendo tareas...');
-        
-        // Obtener tareas
-        google.script.run
-          .withFailureHandler(err => { 
-            setDebug('Error al obtener tareas', String(err));
-            alert('Error al cargar las tareas: ' + err); 
-          })
-          .withSuccessHandler(rows => {
-            setDebug('Datos recibidos del servidor', { count: Array.isArray(rows) ? rows.length : 0 });
-            
-            if (!Array.isArray(rows)) {
-              setDebug('Error: datos no son array', typeof rows);
-              tasks = [];
-            } else {
-              setDebug(`${rows.length} tareas recibidas`, rows.slice(0, 2));
-              tasks = rows;
-            }
-            
-            render();
-          })
-          .apiGetTasks();
-      })
-      .apiPing();
+      .withSuccessHandler(refresh)
+      .apiMoveTask(Number(id), status);
+  }
+
+  function onDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('dragover'); }
+  function onDragLeave(e) { e.currentTarget.classList.remove('dragover'); }
+  
+  // =================================================================
+  // FUNCIONES AUXILIARES (Utilities)
+  // =================================================================
+
+  function toggleTheme() {
+    const html = document.documentElement;
+    const current = html.getAttribute('data-theme');
+    html.setAttribute('data-theme', current === 'light' ? 'dark' : 'light');
+  }
+
+  function prioClass(p) { return String(p || '').toLowerCase(); }
+  
+  function initials(name) {
+    return String(name).trim().split(' ').map(p => p[0] || '').slice(0, 2).join('').toUpperCase() || '—';
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]);
+  }
+
+  function setDebug(msg, obj) {
+    const time = new Date().toLocaleTimeString();
+    let content = `[${time}] ${msg}`;
+    if (obj) content += `\n${JSON.stringify(obj, null, 2)}`;
+    debugPanel.textContent = content;
+    console.log(msg, obj ?? '');
   }
 })();
 </script>

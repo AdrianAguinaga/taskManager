@@ -1,14 +1,12 @@
 <!DOCTYPE html>
 <html lang="es" data-theme="dark">
   <head>
-    <meta charset="utf-t" />
+    <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tablero LIDE</title>
-    
     <?!= include('AppCss'); ?>
   </head>
   <body>
-
     <header class="app-header">
       <h1>Tablero LIDE</h1>
       <div class="actions">
@@ -17,45 +15,35 @@
         <button id="btnNew" class="btn primary">+ Nueva tarea</button>
       </div>
     </header>
-
     <main class="board" id="board">
-      
       <section class="column" data-status="Backlog">
         <h2>Backlog</h2>
         <div class="dropzone" id="col-Backlog"></div>
       </section>
-      
       <section class="column" data-status="In Progress">
         <h2>En Progreso</h2>
         <div class="dropzone" id="col-In-Progress"></div>
       </section>
-      
       <section class="column" data-status="Review">
         <h2>Revisión</h2>
         <div class="dropzone" id="col-Review"></div>
       </section>
-      
       <section class="column" data-status="Done">
         <h2>Hecho</h2>
         <div class="dropzone" id="col-Done"></div>
       </section>
-
     </main>
-
     <dialog id="taskModal">
       <form id="taskForm" method="dialog">
         <h3 id="modalTitle">Nueva tarea</h3>
-        
         <input type="hidden" id="taskId" />
-        
         <label>Título
           <input id="title" placeholder="Ej. Preparar informe mensual" required />
         </label>
-        
         <label>Descripción
-          <textarea id="description" rows="3" placeholder="Añadir detalles sobre la tarea..."></textarea>
+          <!-- CAMBIO: Se aumentó el número de filas a 10 -->
+          <textarea id="description" rows="10" placeholder="Añadir detalles..."></textarea>
         </label>
-        
         <div class="grid">
           <label>Prioridad
             <select id="priority">
@@ -64,12 +52,9 @@
               <option value="Low">Baja 🟢</option>
             </select>
           </label>
-
           <label>Asignar a
-            
             <input id="assignee" placeholder="Ej. Ana, Juan, Pedro" />
           </label>
-
           <label>Estatus
             <select id="status">
               <option>Backlog</option>
@@ -79,20 +64,20 @@
             </select>
           </label>
         </div>
-        
+        <!-- CAMBIO: Se añadió el checkbox para la bandera de revisión -->
+        <label class="checkbox-label">
+          <input type="checkbox" id="needsReview" />
+          <span>Necesita Corrección / Revisión</span>
+        </label>
         <menu class="modal-actions">
           <button id="btnCancel" class="btn" type="button">Cancelar</button>
           <button id="btnDelete" class="btn danger" type="button" style="display:none">Eliminar</button>
-          
           <button id="btnSave" class="btn primary" type="submit">Guardar</button>
         </menu>
       </form>
     </dialog>
-
     <footer class="app-footer">Hecho con ❤️ para LIDE</footer>
-
     <pre id="debugPanel" aria-live="polite"></pre>
-
     <?!= include('AppJs'); ?>
   </body>
 </html>

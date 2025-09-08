@@ -1,154 +1,37 @@
 <style>
-/**
- * Tablero LIDE - Hoja de Estilos Completa
- * Define la apariencia de la aplicación, incluyendo temas claro/oscuro y diseño responsivo.
- */
-
-/* ================================================================= */
-/* TEMA Y VARIABLES DE COLOR */
-/* ================================================================= */
-
-/* --- Tema base (oscuro por defecto) --- */
 :root {
-  --bg: #111827;      /* Fondo principal muy oscuro */
-  --panel: #1f2937;   /* Paneles y tarjetas, ligeramente más claro */
-  --ink: #f9fafb;     /* Color del texto principal (casi blanco) */
-  --muted: #9ca3af;   /* Color del texto secundario (gris) */
-  --accent: #34d399;  /* Acento principal (verde) */
-  --accent-2: #fbbf24;/* Acento secundario (amarillo) */
-  --danger: #f87171;  /* Color para acciones peligrosas (rojo) */
-  --border: #374151; /* Color de los bordes */
-  --shadow: #0000004d;/* Color de la sombra */
+  --bg: #111827; --panel: #1f2937; --ink: #f9fafb; --muted: #9ca3af;
+  --accent: #34d399; --accent-2: #fbbf24; --danger: #f87171;
+  --border: #374151; --shadow: #0000004d;
 }
-
-/* --- Tema claro --- */
 html[data-theme="light"] {
-  --bg: #f3f4f6;
-  --panel: #ffffff;
-  --ink: #111827;
-  --muted: #4b5563;
-  --accent: #10b981;
-  --accent-2: #f59e0b;
-  --danger: #ef4444;
-  --border: #e5e7eb;
-  --shadow: #0000001a;
+  --bg: #f3f4f6; --panel: #ffffff; --ink: #111827; --muted: #4b5563;
+  --accent: #10b981; --accent-2: #f59e0b; --danger: #ef4444;
+  --border: #e5e7eb; --shadow: #0000001a;
 }
-/* --- Estilos para las acciones de la tarjeta --- */
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.card-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.avatar-empty {
-  width: 26px; height: 26px;
-  border-radius: 50%;
-  border: 1px dashed var(--border);
-}
-.btn-assign {
-  width: 26px; height: 26px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background-color: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
-  display: grid;
-  place-items: center;
-  transition: all 0.2s;
-}
-.btn-assign:hover {
-  background-color: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
-}
-/* ================================================================= */
-/* ESTILOS GENERALES Y LAYOUT */
-/* ================================================================= */
-
-/* --- Reseteo y configuración base del cuerpo --- */
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
-  margin: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background-color: var(--bg);
-  color: var(--ink);
+  margin: 0; font-family: system-ui, sans-serif;
+  background-color: var(--bg); color: var(--ink);
   transition: background-color 0.3s, color 0.3s;
 }
-
-/* --- Encabezado de la aplicación --- */
 .app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 24px; border-bottom: 1px solid var(--border);
   background-color: color-mix(in srgb, var(--panel), transparent 20%);
-  backdrop-filter: blur(8px);
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  backdrop-filter: blur(8px); position: sticky; top: 0; z-index: 10;
 }
 .app-header h1 { margin: 0; font-size: 20px; }
 .actions { display: flex; gap: 12px; }
-
-/* --- Tablero principal (grid) --- */
-.board {
-  display: grid;
-  /* Por defecto, 4 columnas */
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  padding: 20px;
-}
-
-/* --- Columnas individuales (Backlog, In Progress, etc.) --- */
-.column {
-  background-color: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  display: flex;
-  flex-direction: column;
-}
-.column h2 {
-  font-size: 16px;
-  margin: 12px 16px 8px;
-  color: var(--muted);
-  font-weight: 600;
-}
-.dropzone {
-  flex-grow: 1; /* Ocupa todo el espacio vertical disponible */
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-height: 75vh;
-  border-radius: 0 0 14px 14px;
-}
-.dropzone.dragover {
-  outline: 2px dashed var(--accent-2);
-  outline-offset: -6px;
-  background-color: color-mix(in srgb, var(--panel), #000 5%);
-}
-
-/* ================================================================= */
-/* COMPONENTES (Botones, Tarjetas, Modal) */
-/* ================================================================= */
-
-/* --- Botones --- */
+.board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 20px; }
+.column { background-color: var(--panel); border: 1px solid var(--border); border-radius: 16px; display: flex; flex-direction: column; }
+.column h2 { font-size: 16px; margin: 12px 16px 8px; color: var(--muted); font-weight: 600; }
+.dropzone { flex-grow: 1; padding: 8px; display: flex; flex-direction: column; gap: 12px; min-height: 75vh; border-radius: 0 0 14px 14px; }
+.dropzone.dragover { outline: 2px dashed var(--accent-2); outline-offset: -6px; }
 .btn {
-  padding: 8px 14px;
-  border: 1px solid var(--border);
-  background-color: var(--panel);
-  color: var(--ink);
-  border-radius: 10px;
-  cursor: pointer;
-  font-weight: 500;
+  padding: 8px 14px; border: 1px solid var(--border); background-color: var(--panel);
+  color: var(--ink); border-radius: 10px; cursor: pointer; font-weight: 500;
   transition: transform 0.1s ease, background-color 0.2s;
 }
 .btn:hover { background-color: color-mix(in srgb, var(--panel), var(--ink) 8%); }
@@ -156,106 +39,95 @@ body {
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn.primary { background-color: var(--accent); color: #fff; border-color: transparent; }
 .btn.danger { background-color: var(--danger); color: #fff; border-color: transparent; }
-
-/* --- Tarjetas de Tarea (Cards) --- */
 .card {
   background-color: color-mix(in srgb, var(--panel), #000 8%);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
-  cursor: grab;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+  cursor: grab; display: flex; flex-direction: column; gap: 8px;
   box-shadow: 0 4px 15px -5px var(--shadow);
 }
 .card:active { cursor: grabbing; }
 .card .title { font-weight: 600; }
-.card .desc { font-size: 14px; color: var(--muted); }
-.card .meta { display: flex; justify-content: space-between; align-items: center; }
+.card .desc {
+  font-size: 14px;
+  color: var(--muted);
+  
+  /* --- INICIO DEL CAMBIO --- */
+  /* Limita el texto a un máximo de 3 líneas */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  /* --- FIN DEL CAMBIO --- */
+}
+.card .meta { display: flex; align-items: center; gap: 8px; }
 .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; }
 .dot.high { background-color: var(--danger); }
 .dot.medium { background-color: var(--accent-2); }
 .dot.low { background-color: var(--accent); }
+.card-header { display: flex; justify-content: space-between; align-items: center; }
+.card-actions { display: flex; align-items: center; gap: 4px; }
 .avatars { display: flex; flex-direction: row-reverse; }
 .avatar {
-  width: 26px; height: 26px;
-  border-radius: 50%;
-  background-color: var(--muted); color: var(--bg);
-  display: grid; place-items: center;
-  font-size: 11px; font-weight: bold;
-  border: 2px solid var(--panel);
-  margin-left: -8px; /* Efecto de superposición */
+  width: 26px; height: 26px; border-radius: 50%; color: var(--bg);
+  display: grid; place-items: center; font-size: 11px; font-weight: bold;
+  border: 2px solid var(--panel); margin-left: -8px;
 }
-
-/* --- Ventana Modal --- */
+.avatar-empty { width: 26px; height: 26px; border-radius: 50%; border: 1px dashed var(--border); }
+.btn-assign {
+  width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border);
+  background-color: transparent; color: var(--muted); cursor: pointer;
+  font-size: 18px; line-height: 1; display: grid; place-items: center; transition: all 0.2s;
+}
+.btn-assign:hover { background-color: var(--accent); color: #fff; border-color: var(--accent); }
+.review-flag { font-size: 16px; cursor: pointer; opacity: 0.8; transition: transform 0.2s; }
+.review-flag:hover { opacity: 1; transform: scale(1.2); }
 #taskModal { border: none; border-radius: 16px; padding: 0; background: transparent; }
 #taskModal::backdrop { background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
-#taskForm {
-  background-color: var(--panel); color: var(--ink);
-  border-radius: 16px; padding: 24px;
-  width: min(600px, 92vw);
-}
+#taskForm { background-color: var(--panel); color: var(--ink); border-radius: 16px; padding: 24px; width: min(600px, 92vw); }
 label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; margin-top: 12px;}
-#btnSelfAssign { float: right; font-size: 11px; padding: 3px 8px; }
 input, textarea, select {
-  width: 100%;
-  background-color: var(--bg); color: var(--ink);
-  border: 1px solid var(--border);
-  border-radius: 8px; padding: 10px; outline: none;
+  width: 100%; background-color: var(--bg); color: var(--ink);
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px; outline: none;
   transition: border-color 0.2s;
 }
 input:focus, textarea:focus, select:focus { border-color: var(--accent); }
 .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
 
-/* --- Pie de Página y Panel de Depuración --- */
+/* CAMBIO: Se añadieron estilos para el nuevo checkbox */
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.checkbox-label input[type="checkbox"] {
+  width: auto;
+  height: auto;
+  accent-color: var(--accent);
+}
+
 .app-footer { padding: 20px; text-align: center; color: var(--muted); font-size: 14px; }
 #debugPanel {
-  position: fixed; bottom: 10px; right: 10px;
-  max-width: 300px; max-height: 200px; overflow: auto;
-  background-color: rgba(0, 0, 0, 0.8); color: #fff;
-  border: 1px solid var(--border); border-radius: 8px;
-  padding: 10px; font-size: 11px; z-index: 9999;
+  position: fixed; bottom: 10px; right: 10px; max-width: 300px; max-height: 200px;
+  overflow: auto; background-color: rgba(0, 0, 0, 0.8); color: #fff;
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 11px; z-index: 9999;
 }
 html[data-theme="light"] #debugPanel { background-color: rgba(255, 255, 255, 0.9); color: #000; }
-
-/* ================================================================= */
-/* DISEÑO RESPONSIVO (PARA TABLETS Y TELÉFONOS) */
-/* ================================================================= */
-
-/* --- Para tablets y pantallas medianas --- */
 @media (max-width: 980px) {
-  .board {
-    /* Cambia el tablero a 2 columnas */
-    grid-template-columns: 1fr 1fr;
-  }
-  .grid {
-    /* Apila los campos del modal en 1 sola columna */
-    grid-template-columns: 1fr;
-  }
+  .board { grid-template-columns: 1fr 1fr; }
+  .grid { grid-template-columns: 1fr; }
 }
-
-/* --- Para teléfonos móviles --- */
 @media (max-width: 620px) {
-  .board {
-    /* Cambia el tablero a 1 sola columna */
-    grid-template-columns: 1fr;
-    padding: 12px;
-  }
-  .app-header {
-    padding: 12px 16px;
-  }
-  .app-header h1 {
-    font-size: 18px;
-  }
-  .actions .btn {
-    padding: 6px 10px;
-    font-size: 13px;
-  }
-  #taskForm {
-    padding: 16px;
-  }
+  .board { grid-template-columns: 1fr; padding: 12px; }
+  .app-header { padding: 12px 16px; }
+  .app-header h1 { font-size: 18px; }
+  .actions .btn { padding: 6px 10px; font-size: 13px; }
+  #taskForm { padding: 16px; }
 }
 </style>

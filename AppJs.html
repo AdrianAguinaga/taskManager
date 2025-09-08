@@ -1,49 +1,36 @@
 <script>
-/**
- * Tablero LIDE - Lógica del Frontend (Cliente)
- * Este script se ejecuta en el navegador del usuario y maneja toda la interactividad:
- * - Carga y renderiza las tareas.
- * - Maneja el drag-and-drop.
- * - Abre y gestiona el formulario modal.
- * - Se comunica con el backend (Code.js) para guardar los cambios.
- */
 (() => {
-  // --- VARIABLES GLOBALES Y SELECTORES DE ELEMENTOS ---
-  const modal = document.getElementById('taskModal');
-  const form = document.getElementById('taskForm');
-  const btnNew = document.getElementById('btnNew');
-  const btnRefresh = document.getElementById('btnRefresh');
-  const btnDelete = document.getElementById('btnDelete');
-  const btnTheme = document.getElementById('btnTheme');
-  const btnCancel = document.getElementById('btnCancel');
-  const btnSelfAssign = document.getElementById('btnSelfAssign');
-  const debugPanel = document.getElementById('debugPanel');
-
-  // Mapeo de columnas para un acceso rápido
-  const columns = {
-    'Backlog':      document.getElementById('col-Backlog'),
-    'In Progress':  document.getElementById('col-In-Progress'),
-    'Review':       document.getElementById('col-Review'),
-    'Done':         document.getElementById('col-Done')
-  };
-
-  // Alias para document.querySelector para un código más corto
-  const $ = (sel, root = document) => root.querySelector(sel);
-  
-  // Array donde se almacenarán todas las tareas una vez cargadas
+  // --- DECLARACIÓN DE VARIABLES ---
+  let modal, form, btnNew, btnRefresh, btnDelete, btnTheme, btnCancel, debugPanel, board;
+  let columns = {};
   let tasks = [];
 
+  const $ = (sel, root = document) => root.querySelector(sel);
+  
   // =================================================================
   // INICIALIZACIÓN DE LA APLICACIÓN
   // =================================================================
   
-  /**
-   * Se ejecuta una vez que toda la página se ha cargado.
-   */
   window.addEventListener('load', () => {
+    modal = document.getElementById('taskModal');
+    form = document.getElementById('taskForm');
+    btnNew = document.getElementById('btnNew');
+    btnRefresh = document.getElementById('btnRefresh');
+    btnDelete = document.getElementById('btnDelete');
+    btnTheme = document.getElementById('btnTheme');
+    btnCancel = document.getElementById('btnCancel');
+    debugPanel = document.getElementById('debugPanel');
+    board = document.getElementById('board');
+
+    columns = {
+      'Backlog': document.getElementById('col-Backlog'),
+      'In Progress': document.getElementById('col-In-Progress'),
+      'Review': document.getElementById('col-Review'),
+      'Done': document.getElementById('col-Done')
+    };
+    
     setDebug('Aplicación iniciada.');
     
-    // Configura todos los event listeners para los botones y formularios.
     try {
       btnTheme.addEventListener('click', toggleTheme);
       btnNew.addEventListener('click', () => openModal());
@@ -52,15 +39,14 @@
       btnCancel.addEventListener('click', () => modal.close());
       form.addEventListener('submit', onSubmit);
       
-      // --- AÑADIR ESTE BLOQUE PARA EL NUEVO BOTÓN ---
-      const board = document.getElementById('board');
       board.addEventListener('click', (e) => {
         if (e.target.classList.contains('btn-assign')) {
-          const taskId = e.target.dataset.taskId;
-          quickAssign(taskId);
+          quickAssign(e.target.dataset.taskId);
+        }
+        if (e.target.classList.contains('review-flag')) {
+          toggleReviewFlag(e.target.dataset.taskId);
         }
       });
-      // --- FIN DEL BLOQUE ---
 
       setDebug('Event listeners configurados.');
     } catch (error) {
@@ -68,81 +54,35 @@
       return;
     }
     
-    // Carga las tareas por primera vez.
     refresh();
   });
 
-  // =================================================================
-  // FUNCIONES PRINCIPALES (CARGA Y RENDERIZADO)
-  // =================================================================
-
-  /**
-   * Pide las tareas al backend y, si tiene éxito, llama a render().
-   */
-  /**
-   * Pide un nombre y llama a la API para asignarse a una tarea sin abrir el modal.
-   */
-  function quickAssign(taskId) {
-    const nombre = prompt("Escribe tu nombre para asignarte a esta tarea:", "");
-    if (!nombre || !taskId) return;
-
-    setDebug(`Asignando a ${nombre} a la tarea #${taskId}...`);
-
-    google.script.run
-      .withFailureHandler(err => {
-        alert('Error al intentar asignar la tarea: ' + err.message);
-      })
-      .withSuccessHandler(() => {
-        setDebug('Asignación rápida exitosa.');
-        refresh(); // Recarga el tablero para mostrar el nuevo asignado
-      })
-      .apiAssignTaskToUser(Number(taskId), nombre.trim());
-  }
-
-
   function refresh() {
-    setDebug('Actualizando tareas desde el servidor...');
+    setDebug('Actualizando tareas...');
     google.script.run
       .withFailureHandler(err => { 
         setDebug('Error al obtener tareas', String(err));
         alert('Error al cargar las tareas: ' + err); 
       })
       .withSuccessHandler(rows => {
-        if (!Array.isArray(rows)) {
-          setDebug('Error: los datos recibidos no son un array', typeof rows);
-          tasks = [];
-        } else {
-          tasks = rows;
-        }
-        render(); // Llama a la función para dibujar las tareas en pantalla
+        tasks = Array.isArray(rows) ? rows : [];
+        render();
       })
       .apiGetTasks();
   }
 
-  /**
-   * Dibuja las tareas en sus columnas correspondientes.
-   * Se llama cada vez que los datos de las tareas cambian.
-   */
   function render() {
     setDebug(`Renderizando ${tasks.length} tareas...`);
-    
-    // 1. Limpia todas las columnas antes de volver a dibujar.
     Object.values(columns).forEach(col => { col.innerHTML = ''; });
 
-    // 2. Dibuja cada tarjeta de tarea en su columna.
-    if (tasks.length === 0) {
-        setDebug('No hay tareas para mostrar.');
-    } else {
+    if (tasks.length > 0) {
         tasks.forEach(task => {
             const card = buildCard(task);
             const targetColumn = columns[task.status] || columns['Backlog'];
-            if (targetColumn) {
-                targetColumn.appendChild(card);
-            }
+            if (targetColumn) targetColumn.appendChild(card);
         });
     }
 
-    // 3. Activa la funcionalidad de drag-and-drop en las columnas.
     Object.values(columns).forEach(col => {
       col.addEventListener('dragover', onDragOver);
       col.addEventListener('dragleave', onDragLeave);
@@ -150,31 +90,24 @@
     });
   }
 
-  /**
-   * Construye el elemento HTML para una sola tarjeta de tarea.
-   * @param {Object} t - El objeto de la tarea.
-   * @returns {HTMLElement} El elemento <article> de la tarjeta.
-   */
-function buildCard(t) {
+  function buildCard(t) {
     const el = document.createElement('article');
     el.className = 'card';
     el.draggable = true;
     el.dataset.id = t.id;
     
-    // Lógica para mostrar múltiples avatares (sin cambios)
     let avatarsHtml = '<div class="avatars">';
     if (t.assignee) {
       const assignees = t.assignee.split(',').map(name => name.trim()).filter(Boolean);
       assignees.forEach(name => {
-        avatarsHtml += `<span class="avatar" title="${escapeHtml(name)}">${initials(name)}</span>`;
+        const { bgColor, textColor } = getColorForName(name);
+        avatarsHtml += `<span class="avatar" style="background-color: ${bgColor}; color: ${textColor};" title="${escapeHtml(name)}">${initials(name)}</span>`;
       });
     } else {
       avatarsHtml += `<span class="avatar-empty" title="Sin asignar"></span>`;
     }
     avatarsHtml += '</div>';
     
-    // --- INICIO DE LA MODIFICACIÓN ---
-    // Se añade un contenedor para las acciones de la tarjeta y el nuevo botón.
     el.innerHTML = `
       <div class="card-header">
         <div class="meta">
@@ -182,6 +115,7 @@ function buildCard(t) {
           <span class="badge">
             <span class="dot ${prioClass(t.priority)}"></span>${t.priority}
           </span>
+          ${t.needsReview ? `<span class="review-flag" data-task-id="${t.id}" title="Necesita Revisión. Haz clic para quitar.">🚩</span>` : ''}
         </div>
         <div class="card-actions">
           ${avatarsHtml}
@@ -191,28 +125,29 @@ function buildCard(t) {
       <div class="title">${escapeHtml(t.title)}</div>
       ${t.description ? `<div class="desc">${escapeHtml(t.description)}</div>` : ''}
     `;
-    // --- FIN DE LA MODIFICACIÓN ---
     
-    el.addEventListener('dragstart', e => {
-      e.dataTransfer.setData('text/plain', String(t.id));
-    });
-    
+    el.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', String(t.id)));
     el.addEventListener('dblclick', () => openModal(t));
     return el;
   }
-  // =================================================================
-  // MANEJADORES DE EVENTOS (Event Handlers)
-  // =================================================================
-  
-  /**
-   * Lógica de autoasignación: pide un nombre y lo agrega al campo de asignados.
-   * NO requiere contraseña.
-   */
 
-  /**
-   * Se ejecuta al enviar el formulario (botón "Guardar").
-   * Decide si crear una nueva tarea o actualizar una existente.
-   */
+  function quickAssign(taskId) {
+    const nombre = prompt("Escribe tu nombre para asignarte:", "");
+    if (!nombre || !taskId) return;
+    google.script.run
+      .withFailureHandler(err => alert('Error: ' + err.message))
+      .withSuccessHandler(refresh)
+      .apiAssignTaskToUser(Number(taskId), nombre.trim());
+  }
+
+  function toggleReviewFlag(taskId) {
+    if (!taskId) return;
+    google.script.run
+      .withFailureHandler(err => alert('Error: ' + err.message))
+      .withSuccessHandler(refresh)
+      .apiToggleReviewFlag(Number(taskId));
+  }
+
   function onSubmit(e) {
     e.preventDefault();
     const payload = {
@@ -221,135 +156,99 @@ function buildCard(t) {
       description: $('#description').value.trim(),
       priority: $('#priority').value,
       assignee: $('#assignee').value.trim(),
-      status: $('#status').value
+      status: $('#status').value,
+      // CAMBIO: Se obtiene el estado del checkbox de revisión
+      needsReview: $('#needsReview').checked
     };
-
-    if (!payload.title) {
-      alert('El título es obligatorio.'); 
-      return; 
-    }
+    if (!payload.title) return alert('El título es obligatorio.');
     
-    const userPassword = prompt('Por favor, ingresa la contraseña para guardar los cambios:');
+    const userPassword = prompt('Ingresa la contraseña para guardar:');
     if (userPassword === null) return;
 
-    // Lógica para deshabilitar el botón y mostrar "Guardando..."
     const saveButton = $('#btnSave');
     const originalButtonText = saveButton.textContent;
     saveButton.textContent = 'Guardando...';
     saveButton.disabled = true;
 
     const onFinish = (error = null) => {
-        saveButton.textContent = originalButtonText;
-        saveButton.disabled = false;
-        if (error) {
-            setDebug('Error en la operación', String(error));
-            alert('Error: ' + error);
-        } else {
-            modal.close();
-            refresh();
-        }
+      saveButton.textContent = originalButtonText;
+      saveButton.disabled = false;
+      if (error) return alert('Error: ' + error);
+      modal.close();
+      refresh();
     };
     
-    // Decide si llamar a la API de crear o actualizar.
     if (payload.id) {
-      google.script.run
-        .withFailureHandler(onFinish)
-        .withSuccessHandler(() => onFinish())
-        .apiUpdateTask({ task: payload, password: userPassword });
+      google.script.run.withFailureHandler(onFinish).withSuccessHandler(() => onFinish()).apiUpdateTask({ task: payload, password: userPassword });
     } else {
-      google.script.run
-        .withFailureHandler(onFinish)
-        .withSuccessHandler(() => onFinish())
-        .apiCreateTask({ task: payload, password: userPassword });
+      google.script.run.withFailureHandler(onFinish).withSuccessHandler(() => onFinish()).apiCreateTask({ task: payload, password: userPassword });
     }
   }
 
-  /**
-   * Se ejecuta al hacer clic en el botón "Eliminar".
-   */
   function onDelete() {
     const id = Number($('#taskId').value);
-    if (!id || !confirm('¿Estás seguro de que quieres eliminar esta tarea?')) return;
-    
-    const userPassword = prompt('Por favor, ingresa la contraseña para ELIMINAR la tarea:');
+    if (!id || !confirm('¿Seguro que quieres eliminar esta tarea?')) return;
+    const userPassword = prompt('Ingresa la contraseña para ELIMINAR:');
     if (userPassword === null) return;
-    
-    setDebug(`Eliminando tarea ${id}...`);
     google.script.run
       .withFailureHandler(err => alert('Error al eliminar: ' + err))
-      .withSuccessHandler(() => {
-        modal.close();
-        refresh();
-      })
+      .withSuccessHandler(() => { modal.close(); refresh(); })
       .apiDeleteTask({ id: id, password: userPassword });
   }
 
-  /**
-   * Abre el modal, ya sea vacío (para una nueva tarea) o con los datos de una tarea existente.
-   */
   function openModal(task = null) {
-    form.reset(); // Limpia el formulario
+    form.reset();
     $('#taskId').value = task?.id || '';
     $('#title').value = task?.title || '';
     $('#description').value = task?.description || '';
     $('#priority').value = task?.priority || 'Medium';
     $('#assignee').value = task?.assignee || '';
     $('#status').value = task?.status || 'Backlog';
+    // CAMBIO: Se establece el valor del checkbox al abrir el modal
+    $('#needsReview').checked = task?.needsReview || false;
     $('#modalTitle').textContent = task ? `Editar tarea #${task.id}` : 'Nueva tarea';
     btnDelete.style.display = task ? 'inline-block' : 'none';
     modal.showModal();
   }
 
-  // --- LÓGICA DE DRAG AND DROP ---
   function onDrop(e) {
     e.preventDefault();
     const id = e.dataTransfer.getData('text/plain');
-    const status = e.currentTarget.id.replace('col-', '').replace('-', ' ');
+    const status = e.currentTarget.closest('.column').dataset.status;
     e.currentTarget.classList.remove('dragover');
-
-    // Mueve la tarjeta visualmente de inmediato para una mejor experiencia.
     const card = $(`[data-id="${id}"]`);
     if (card) e.currentTarget.appendChild(card);
-    
-    // Llama al backend para guardar el cambio de estado.
-    google.script.run
-      .withFailureHandler(err => {
-        alert('Error al mover la tarea: ' + err); 
-        refresh(); // Si falla, recarga para revertir el cambio visual.
-      })
-      .withSuccessHandler(refresh)
-      .apiMoveTask(Number(id), status);
+    google.script.run.withFailureHandler(() => refresh()).withSuccessHandler(refresh).apiMoveTask(Number(id), status);
   }
 
   function onDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('dragover'); }
   function onDragLeave(e) { e.currentTarget.classList.remove('dragover'); }
   
-  // =================================================================
-  // FUNCIONES AUXILIARES (Utilities)
-  // =================================================================
+  function getColorForName(name) {
+    const colors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e'];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    const bgColor = colors[Math.abs(hash % colors.length)];
+    const r = parseInt(bgColor.slice(1, 3), 16), g = parseInt(bgColor.slice(3, 5), 16), b = parseInt(bgColor.slice(5, 7), 16);
+    const textColor = ((r * 299 + g * 587 + b * 114) / 1000) > 155 ? '#111827' : '#ffffff';
+    return { bgColor, textColor };
+  }
 
   function toggleTheme() {
-    const html = document.documentElement;
-    const current = html.getAttribute('data-theme');
-    html.setAttribute('data-theme', current === 'light' ? 'dark' : 'light');
+    const current = document.documentElement.getAttribute('data-theme');
+    document.documentElement.setAttribute('data-theme', current === 'light' ? 'dark' : 'light');
   }
 
   function prioClass(p) { return String(p || '').toLowerCase(); }
+  function initials(name) { return String(name).trim().split(' ').map(p => p[0] || '').slice(0, 2).join('').toUpperCase() || '—'; }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]); }
   
-  function initials(name) {
-    return String(name).trim().split(' ').map(p => p[0] || '').slice(0, 2).join('').toUpperCase() || '—';
-  }
-
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]);
-  }
-
   function setDebug(msg, obj) {
+    if (!debugPanel) return; 
     const time = new Date().toLocaleTimeString();
     let content = `[${time}] ${msg}`;
     if (obj) content += `\n${JSON.stringify(obj, null, 2)}`;
     debugPanel.textContent = content;
-    console.log(msg, obj ?? '');
   }
 })();
 </script>

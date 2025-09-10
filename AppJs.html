@@ -1,151 +1,365 @@
 <script>
 (() => {
-  // --- DECLARACIÓN DE VARIABLES ---
+  // =================================================================
+  // ESTADO
+  // =================================================================
   let modal, form, btnNew, btnRefresh, btnDelete, btnTheme, btnCancel, debugPanel, board;
-  let columns = {};
+  let descModal; // modal de descripción expandida
+  const columns = {};
   let tasks = [];
 
   const $ = (sel, root = document) => root.querySelector(sel);
-  
+
   // =================================================================
-  // INICIALIZACIÓN DE LA APLICACIÓN
+  // INIT
   // =================================================================
-  
   window.addEventListener('load', () => {
-    modal = document.getElementById('taskModal');
-    form = document.getElementById('taskForm');
-    btnNew = document.getElementById('btnNew');
-    btnRefresh = document.getElementById('btnRefresh');
-    btnDelete = document.getElementById('btnDelete');
-    btnTheme = document.getElementById('btnTheme');
-    btnCancel = document.getElementById('btnCancel');
-    debugPanel = document.getElementById('debugPanel');
-    board = document.getElementById('board');
+    modal       = $('#taskModal');
+    form        = $('#taskForm');
+    btnNew      = $('#btnNew');
+    btnRefresh  = $('#btnRefresh');
+    btnDelete   = $('#btnDelete');
+    btnTheme    = $('#btnTheme');
+    btnCancel   = $('#btnCancel');
+    debugPanel  = $('#debugPanel');
+    board       = $('#board');
 
-    columns = {
-      'Backlog': document.getElementById('col-Backlog'),
-      'In Progress': document.getElementById('col-In-Progress'),
-      'Review': document.getElementById('col-Review'),
-      'Done': document.getElementById('col-Done')
-    };
-    
+    // Crear modal para descripción expandida si no existe
+    descModal = document.createElement('dialog');
+    descModal.id = 'descModal';
+    descModal.innerHTML = `
+      <div class="desc-header">
+        <strong>Descripción</strong>
+        <div style="display:flex; gap:8px;">
+          <button class="btn" id="descCopyBtn" title="Copiar texto">Copiar</button>
+          <button class="btn primary" id="descCloseBtn">Cerrar</button>
+        </div>
+      </div>
+      <div class="desc-body" id="descBody"></div>
+    `;
+    document.body.appendChild(descModal);
+    $('#descCloseBtn', descModal).addEventListener('click', () => descModal.close());
+    $('#descCopyBtn', descModal).addEventListener('click', () => {
+      const el = $('#descBody', descModal);
+      const text = el.innerText || el.textContent || '';
+      navigator.clipboard.writeText(text).catch(()=>{});
+    });
+
+    // Mapea columnas por estatus (coincide con Index.html)
+    columns['Backlog']     = $('#col-Backlog');
+    columns['In Progress'] = $('#col-In-Progress');
+    columns['Review']      = $('#col-Review');
+    columns['Done']        = $('#col-Done');
+
+    // Botón de archivar en “Hecho”
+    injectArchiveButton();
+
+    // Listeners base
+    btnTheme?.addEventListener('click', toggleTheme);
+    btnNew?.addEventListener('click', () => openModal());
+    btnRefresh?.addEventListener('click', refresh);
+    btnDelete?.addEventListener('click', onDelete);
+    btnCancel?.addEventListener('click', () => modal.close());
+    form?.addEventListener('submit', onSubmit);
+
+    // Evitar selección de texto en drag
+    window.addEventListener('dragstart', () => document.body.classList.add('dragging'));
+    window.addEventListener('dragend',   () => document.body.classList.remove('dragging'));
+
+    // Persistencia de tema
+    loadTheme();
+
     setDebug('Aplicación iniciada.');
-    
-    try {
-      btnTheme.addEventListener('click', toggleTheme);
-      btnNew.addEventListener('click', () => openModal());
-      btnRefresh.addEventListener('click', refresh);
-      btnDelete.addEventListener('click', onDelete);
-      btnCancel.addEventListener('click', () => modal.close());
-      form.addEventListener('submit', onSubmit);
-      
-      board.addEventListener('click', (e) => {
-        if (e.target.classList.contains('btn-assign')) {
-          quickAssign(e.target.dataset.taskId);
-        }
-        if (e.target.classList.contains('review-flag')) {
-          toggleReviewFlag(e.target.dataset.taskId);
-        }
-      });
-
-      setDebug('Event listeners configurados.');
-    } catch (error) {
-      setDebug('Error al configurar listeners', error.message);
-      return;
-    }
-    
     refresh();
   });
 
+  // =================================================================
+  // TEMA (persistente)
+  // =================================================================
+  function loadTheme() {
+    const saved = localStorage.getItem('lide.theme');
+    if (saved) document.documentElement.setAttribute('data-theme', saved);
+  }
+  function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = current === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('lide.theme', next);
+  }
+
+  // =================================================================
+  // BOTÓN ARCHIVAR “HECHO”
+  // =================================================================
+  function injectArchiveButton(){
+    const doneSection = document.querySelector('section.column[data-status="Done"]');
+    const h2 = doneSection?.querySelector('h2');
+    if (!h2 || h2.querySelector('#btnArchiveDone')) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'btnArchiveDone';
+    btn.className = 'btn-archive col-action';
+    btn.type = 'button';
+    btn.title = 'Mover todas las tareas en "Hecho" a Histórico';
+    btn.textContent = 'Archivar hechos';
+    btn.addEventListener('click', onArchiveDoneClick);
+    h2.appendChild(btn);
+  }
+
+  function onArchiveDoneClick(){
+    const msg = [
+      'Vas a mover TODAS las tareas en “Hecho” al estado HISTÓRICO.',
+      'Estas tareas YA NO se mostrarán en el tablero,',
+      'pero seguirán en la hoja de cálculo para futuras referencias.'
+    ].join(' ');
+    if (!confirm(msg)) return;
+
+    const password = prompt('Ingresa la contraseña para archivar:');
+    if (password === null) return;
+
+    const btn = document.getElementById('btnArchiveDone');
+    const old = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Archivando...';
+
+    google.script.run
+      .withFailureHandler(err => {
+        alert('Error al archivar: ' + (err?.message || err));
+        btn.disabled = false; btn.textContent = old;
+      })
+      .withSuccessHandler(res => {
+        alert(`${res?.count || 0} tarea(s) movidas a Histórico.`);
+        btn.disabled = false; btn.textContent = old;
+        refresh();
+      })
+      .apiArchiveDone({ password: password, newStatus: 'Historico' });
+  }
+
+  // =================================================================
+  // CARGA Y RENDER
+  // =================================================================
   function refresh() {
     setDebug('Actualizando tareas...');
     google.script.run
-      .withFailureHandler(err => { 
+      .withFailureHandler(err => {
         setDebug('Error al obtener tareas', String(err));
-        alert('Error al cargar las tareas: ' + err); 
+        alert('Error al cargar las tareas: ' + err);
       })
-      .withSuccessHandler(rows => {
-        tasks = Array.isArray(rows) ? rows : [];
-        render();
-      })
+      .withSuccessHandler(rows => { tasks = Array.isArray(rows) ? rows : []; render(); })
       .apiGetTasks();
   }
 
   function render() {
     setDebug(`Renderizando ${tasks.length} tareas...`);
+
+    // Ocultar histórico/almacén del tablero
+    const visible = tasks.filter(t => !isArchivedStatus(t.status));
+
     Object.values(columns).forEach(col => { col.innerHTML = ''; });
 
-    if (tasks.length > 0) {
-        tasks.forEach(task => {
-            const card = buildCard(task);
-            const targetColumn = columns[task.status] || columns['Backlog'];
-            if (targetColumn) targetColumn.appendChild(card);
-        });
+    const buckets = {
+      'Backlog': document.createDocumentFragment(),
+      'In Progress': document.createDocumentFragment(),
+      'Review': document.createDocumentFragment(),
+      'Done': document.createDocumentFragment()
+    };
+
+    for (const t of visible) {
+      const card = buildCard(t);
+      (buckets[t.status] || buckets['Backlog']).appendChild(card);
     }
 
+    columns['Backlog'].appendChild(buckets['Backlog']);
+    columns['In Progress'].appendChild(buckets['In Progress']);
+    columns['Review'].appendChild(buckets['Review']);
+    columns['Done'].appendChild(buckets['Done']);
+
     Object.values(columns).forEach(col => {
+      col.removeEventListener('dragover', onDragOver);
+      col.removeEventListener('dragleave', onDragLeave);
+      col.removeEventListener('drop', onDrop);
       col.addEventListener('dragover', onDragOver);
       col.addEventListener('dragleave', onDragLeave);
       col.addEventListener('drop', onDrop);
     });
   }
 
-  function buildCard(t) {
+  // =================================================================
+  // CONSTRUCCIÓN DE TARJETA
+  // =================================================================
+  function buildCard(task) {
     const el = document.createElement('article');
     el.className = 'card';
     el.draggable = true;
-    el.dataset.id = t.id;
-    
-    let avatarsHtml = '<div class="avatars">';
-    if (t.assignee) {
-      const assignees = t.assignee.split(',').map(name => name.trim()).filter(Boolean);
-      assignees.forEach(name => {
-        const { bgColor, textColor } = getColorForName(name);
-        avatarsHtml += `<span class="avatar" style="background-color: ${bgColor}; color: ${textColor};" title="${escapeHtml(name)}">${initials(name)}</span>`;
-      });
-    } else {
-      avatarsHtml += `<span class="avatar-empty" title="Sin asignar"></span>`;
+    el.dataset.id = task.id;
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'card-header';
+
+    // Izquierda: #id + título
+    const left = document.createElement('div');
+    left.className = 'card-head-left';
+
+    const idSpan = document.createElement('span');
+    idSpan.className = 'card-id';
+    idSpan.textContent = `#${task.id}`;
+
+    const title = document.createElement('h3');
+    title.className = 'title';
+    title.textContent = task.title || '(Sin título)';
+    title.title = task.title || '';
+
+    left.appendChild(idSpan);
+    left.appendChild(title);
+
+    // Derecha: bandera (si needsReview), semáforo, avatares, Asignarme
+    const right = document.createElement('div');
+    right.style.display = 'flex';
+    right.style.alignItems = 'center';
+    right.style.gap = '10px';
+
+    if (task.needsReview) {
+      const flag = document.createElement('span');
+      flag.className = 'flag';
+      flag.title = 'Necesita corrección / revisión';
+      flag.textContent = '⚑';
+      right.appendChild(flag);
     }
-    avatarsHtml += '</div>';
-    
-    el.innerHTML = `
-      <div class="card-header">
-        <div class="meta">
-          <span class="badge">#${t.id}</span>
-          <span class="badge">
-            <span class="dot ${prioClass(t.priority)}"></span>${t.priority}
-          </span>
-          ${t.needsReview ? `<span class="review-flag" data-task-id="${t.id}" title="Necesita Revisión. Haz clic para quitar.">🚩</span>` : ''}
-        </div>
-        <div class="card-actions">
-          ${avatarsHtml}
-          <button class="btn-assign" data-task-id="${t.id}" title="Asignarme a esta tarea">+</button>
-        </div>
-      </div>
-      <div class="title">${escapeHtml(t.title)}</div>
-      ${t.description ? `<div class="desc">${escapeHtml(t.description)}</div>` : ''}
-    `;
-    
-    el.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', String(t.id)));
-    el.addEventListener('dblclick', () => openModal(t));
+
+    const prio = document.createElement('span');
+    const pClass = getPrioClass(task.priority);
+    prio.className = 'prio-dot ' + pClass;
+    prio.title = prioTitle(task.priority);
+    right.appendChild(prio);
+
+    const avatars = buildAvatars(task);
+    if (avatars) right.appendChild(avatars);
+
+    const assignBtn = document.createElement('button');
+    assignBtn.className = 'assign-btn';
+    assignBtn.type = 'button';
+    assignBtn.title = 'Asignarme esta tarea';
+    assignBtn.innerHTML = `<span class="plus">+</span>`;
+    assignBtn.addEventListener('click', (e) => { e.stopPropagation(); quickAssign(task.id); });
+    assignBtn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); assignBtn.click(); }});
+    right.appendChild(assignBtn);
+
+    header.appendChild(left);
+    header.appendChild(right);
+    el.appendChild(header);
+
+    // Descripción (linkificada) + botón "Expandir"
+    if (task.description) {
+      const desc = document.createElement('div');
+      desc.className = 'desc';
+      desc.innerHTML = linkifyHTML(escapeHTML(task.description));
+      el.appendChild(desc);
+
+      const more = document.createElement('button');
+      more.className = 'expand-desc';
+      more.type = 'button';
+      more.textContent = 'Expandir';
+      more.title = 'Ver descripción completa';
+      more.addEventListener('click', () => openDescModal(task.title, task.description));
+      el.appendChild(more);
+    }
+
+    el.addEventListener('dblclick', () => openModal(task));
+    el.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', String(task.id)));
     return el;
   }
 
-  function quickAssign(taskId) {
-    const nombre = prompt("Escribe tu nombre para asignarte:", "");
-    if (!nombre || !taskId) return;
-    google.script.run
-      .withFailureHandler(err => alert('Error: ' + err.message))
-      .withSuccessHandler(refresh)
-      .apiAssignTaskToUser(Number(taskId), nombre.trim());
+  function buildAvatars(task) {
+    const list = String(task.assignee || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (!list.length) return null;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'avatars';
+
+    list.slice(0, 3).forEach(name => {
+      const a = document.createElement('div');
+      a.className = 'avatar';
+      a.title = name;
+      a.textContent = initialsFromName(name);
+      const {bg, fg, bd} = colorForName(name);
+      a.style.background = bg;
+      a.style.color = fg;
+      a.style.borderColor = bd;
+      wrap.appendChild(a);
+    });
+
+    if (list.length > 3) {
+      const more = document.createElement('div');
+      more.className = 'avatar';
+      const {bg, fg, bd} = colorForName('more');
+      more.style.background = bg;
+      more.style.color = fg;
+      more.style.borderColor = bd;
+      more.title = `${list.length - 3} más`;
+      more.textContent = `+${list.length - 3}`;
+      wrap.appendChild(more);
+    }
+    return wrap;
   }
 
-  function toggleReviewFlag(taskId) {
-    if (!taskId) return;
-    google.script.run
-      .withFailureHandler(err => alert('Error: ' + err.message))
-      .withSuccessHandler(refresh)
-      .apiToggleReviewFlag(Number(taskId));
+  // =================================================================
+  // MODAL DE DESCRIPCIÓN EXPANDIDA
+  // =================================================================
+  function openDescModal(title, description) {
+    const body = $('#descBody', descModal);
+    const safe = linkifyHTML(escapeHTML(description || ''));
+    body.innerHTML = `<p><strong>${escapeHTML(title || '')}</strong></p><p>${safe}</p>`;
+    descModal.showModal();
+  }
+
+  // =================================================================
+  // FORMULARIO / CRUD
+  // =================================================================
+  function openModal(task = null) {
+    form.reset();
+    $('#taskId').value       = task?.id || '';
+    $('#title').value        = task?.title || '';
+    $('#description').value  = task?.description || '';
+    $('#priority').value     = task?.priority || 'Medium';
+    $('#assignee').value     = task?.assignee || '';
+    $('#status').value       = task?.status || 'Backlog';
+    $('#needsReview').checked = !!task?.needsReview;
+
+    // Alineación checkbox (si hiciera falta)
+    const needsWrap = document.getElementById('needsWrap');
+    if (!needsWrap) {
+      const chk = $('#needsReview');
+      const label = document.querySelector('label[for="needsReview"]');
+      const row = document.createElement('div');
+      row.id = 'needsWrap';
+      row.className = 'check-row';
+      chk.parentElement.insertBefore(row, chk);
+      row.appendChild(chk);
+      if (label) row.appendChild(label);
+    }
+
+    injectExpandInForm();
+
+    $('#modalTitle').textContent = task ? `Editar tarea #${task.id}` : 'Nueva tarea';
+    btnDelete.style.display = task ? 'inline-block' : 'none';
+    modal.showModal();
+  }
+
+  function injectExpandInForm() {
+    const area = $('#description');
+    if (!area) return;
+    let btn = document.getElementById('btnExpandFormDesc');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'btnExpandFormDesc';
+      btn.type = 'button';
+      btn.className = 'expand-desc';
+      btn.style.marginTop = '6px';
+      btn.textContent = 'Expandir';
+      area.parentElement.appendChild(btn);
+      btn.addEventListener('click', () => openDescModal($('#title').value, area.value));
+    } else if (btn.parentElement !== area.parentElement) {
+      area.parentElement.appendChild(btn);
+    }
   }
 
   function onSubmit(e) {
@@ -157,98 +371,146 @@
       priority: $('#priority').value,
       assignee: $('#assignee').value.trim(),
       status: $('#status').value,
-      // CAMBIO: Se obtiene el estado del checkbox de revisión
       needsReview: $('#needsReview').checked
     };
     if (!payload.title) return alert('El título es obligatorio.');
-    
-    const userPassword = prompt('Ingresa la contraseña para guardar:');
-    if (userPassword === null) return;
 
-    const saveButton = $('#btnSave');
-    const originalButtonText = saveButton.textContent;
-    saveButton.textContent = 'Guardando...';
-    saveButton.disabled = true;
+    const password = prompt('Ingresa la contraseña para guardar:');
+    if (password === null) return;
 
-    const onFinish = (error = null) => {
-      saveButton.textContent = originalButtonText;
-      saveButton.disabled = false;
-      if (error) return alert('Error: ' + error);
-      modal.close();
-      refresh();
+    const btn = $('#btnSave');
+    const txt = btn.textContent;
+    btn.textContent = 'Guardando...'; btn.disabled = true;
+
+    const finish = (err = null) => {
+      btn.textContent = txt; btn.disabled = false;
+      if (err) return alert('Error: ' + err);
+      modal.close(); refresh();
     };
-    
+
     if (payload.id) {
-      google.script.run.withFailureHandler(onFinish).withSuccessHandler(() => onFinish()).apiUpdateTask({ task: payload, password: userPassword });
+      google.script.run
+        .withFailureHandler(finish)
+        .withSuccessHandler(() => finish())
+        .apiUpdateTask({ task: payload, password });
     } else {
-      google.script.run.withFailureHandler(onFinish).withSuccessHandler(() => onFinish()).apiCreateTask({ task: payload, password: userPassword });
+      google.script.run
+        .withFailureHandler(finish)
+        .withSuccessHandler(() => finish())
+        .apiCreateTask({ task: payload, password });
     }
   }
 
   function onDelete() {
     const id = Number($('#taskId').value);
     if (!id || !confirm('¿Seguro que quieres eliminar esta tarea?')) return;
-    const userPassword = prompt('Ingresa la contraseña para ELIMINAR:');
-    if (userPassword === null) return;
+    const password = prompt('Ingresa la contraseña para ELIMINAR:');
+    if (password === null) return;
+
     google.script.run
       .withFailureHandler(err => alert('Error al eliminar: ' + err))
       .withSuccessHandler(() => { modal.close(); refresh(); })
-      .apiDeleteTask({ id: id, password: userPassword });
+      .apiDeleteTask({ id, password });
   }
 
-  function openModal(task = null) {
-    form.reset();
-    $('#taskId').value = task?.id || '';
-    $('#title').value = task?.title || '';
-    $('#description').value = task?.description || '';
-    $('#priority').value = task?.priority || 'Medium';
-    $('#assignee').value = task?.assignee || '';
-    $('#status').value = task?.status || 'Backlog';
-    // CAMBIO: Se establece el valor del checkbox al abrir el modal
-    $('#needsReview').checked = task?.needsReview || false;
-    $('#modalTitle').textContent = task ? `Editar tarea #${task.id}` : 'Nueva tarea';
-    btnDelete.style.display = task ? 'inline-block' : 'none';
-    modal.showModal();
-  }
-
-  function onDrop(e) {
+  // =================================================================
+  // DRAG & DROP
+  // =================================================================
+  function onDragOver(e){ e.preventDefault(); e.currentTarget.classList.add('dragover'); }
+  function onDragLeave(e){ e.currentTarget.classList.remove('dragover'); }
+  function onDrop(e){
     e.preventDefault();
     const id = e.dataTransfer.getData('text/plain');
     const status = e.currentTarget.closest('.column').dataset.status;
     e.currentTarget.classList.remove('dragover');
-    const card = $(`[data-id="${id}"]`);
+    const card = document.querySelector(`[data-id="${id}"]`);
     if (card) e.currentTarget.appendChild(card);
-    google.script.run.withFailureHandler(() => refresh()).withSuccessHandler(refresh).apiMoveTask(Number(id), status);
+
+    google.script.run
+      .withFailureHandler(() => refresh())
+      .withSuccessHandler(refresh)
+      .apiMoveTask(Number(id), status);
   }
 
-  function onDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('dragover'); }
-  function onDragLeave(e) { e.currentTarget.classList.remove('dragover'); }
-  
-  function getColorForName(name) {
-    const colors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e'];
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    const bgColor = colors[Math.abs(hash % colors.length)];
-    const r = parseInt(bgColor.slice(1, 3), 16), g = parseInt(bgColor.slice(3, 5), 16), b = parseInt(bgColor.slice(5, 7), 16);
-    const textColor = ((r * 299 + g * 587 + b * 114) / 1000) > 155 ? '#111827' : '#ffffff';
-    return { bgColor, textColor };
+  // =================================================================
+  // ACCIONES
+  // =================================================================
+  function quickAssign(taskId) {
+    const nombre = prompt('Escribe tu nombre para asignarte:', '');
+    if (!nombre || !taskId) return;
+    google.script.run
+      .withFailureHandler(err => alert('Error: ' + err.message))
+      .withSuccessHandler(refresh)
+      .apiAssignTaskToUser(Number(taskId), nombre.trim());
   }
 
-  function toggleTheme() {
-    const current = document.documentElement.getAttribute('data-theme');
-    document.documentElement.setAttribute('data-theme', current === 'light' ? 'dark' : 'light');
+  // =================================================================
+  // HELPERS
+  // =================================================================
+  function isArchivedStatus(s){
+    return /^(historico|histórico|almacen|almac[eé]n|archive|archived)$/i.test(String(s||''));
   }
-
-  function prioClass(p) { return String(p || '').toLowerCase(); }
-  function initials(name) { return String(name).trim().split(' ').map(p => p[0] || '').slice(0, 2).join('').toUpperCase() || '—'; }
-  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]); }
-  
-  function setDebug(msg, obj) {
-    if (!debugPanel) return; 
+  function getPrioClass(priority){
+    const p = String(priority || '').toLowerCase();
+    if (p.startsWith('h')) return 'alta';
+    if (p.startsWith('m')) return 'media';
+    return 'baja';
+  }
+  function prioTitle(priority){
+    const p = String(priority || '').toLowerCase();
+    if (p.startsWith('h')) return 'Alta';
+    if (p.startsWith('m')) return 'Media';
+    if (p.startsWith('l')) return 'Baja';
+    return 'Prioridad';
+  }
+  function initialsFromName(name){
+    const s = String(name || '').trim();
+    if (!s) return '—';
+    const parts = s.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) return parts[0].slice(0,2).toUpperCase();
+    return (parts[0][0] + parts[parts.length-1][0]).toUpperCase();
+  }
+  function setDebug(msg, obj){
+    if (!debugPanel) return;
     const time = new Date().toLocaleTimeString();
     let content = `[${time}] ${msg}`;
     if (obj) content += `\n${JSON.stringify(obj, null, 2)}`;
     debugPanel.textContent = content;
+  }
+
+  // Colores determinísticos por nombre
+  function colorForName(name){
+    const palette = [
+      ['#A7F3D0','#06251b','#069B66'], // mint
+      ['#BFDBFE','#0B2847','#5F9DF7'], // blue
+      ['#FBCFE8','#3B0A2E','#D24F9C'], // pink
+      ['#FDE68A','#3A2A00','#D9A800'], // yellow
+      ['#C7D2FE','#0F1544','#7C89F9'], // indigo
+      ['#FCA5A5','#3A0606','#E05757'], // red
+      ['#FDBA74','#3A1E05','#D97A23'], // orange
+      ['#DDD6FE','#210B47','#9D7FF9'], // violet
+      ['#BBF7D0','#05290F','#1FB76E'], // green
+      ['#BAE6FD','#062236','#1E98C9']  // sky
+    ];
+    let h = 0;
+    const s = String(name||'');
+    for (let i=0;i<s.length;i++) h = (h*33 + s.charCodeAt(i)) % 2147483647;
+    const idx = h % palette.length;
+    const [bg, fg, bd] = palette[idx];
+    return { bg, fg, bd };
+  }
+
+  // Safe linkify
+  function escapeHTML(str){
+    return String(str || '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function linkifyHTML(safe){
+    const urlRE = /\b(https?:\/\/[^\s<]+[^\s<\.)])/gi;
+    return safe.replace(urlRE, (m) =>
+      `<a href="${m}" target="_blank" rel="noopener noreferrer">${m}</a>`
+    );
   }
 })();
 </script>

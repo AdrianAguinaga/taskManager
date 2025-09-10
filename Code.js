@@ -1,24 +1,22 @@
 /**
- * Tablero LIDE - Versión Final y Comentada (con auto-reparación de encabezados)
- * Este archivo contiene toda la lógica del lado del servidor (backend).
+ * Tablero LIDE - Backend (Google Apps Script)
+ * Incluye archivado de tareas “Done” -> “Historico”.
  */
 
 // --- CONFIGURACIÓN PRINCIPAL ---
-const SPREADSHEET_ID = ''; // Opcional: Dejar vacío si el script está vinculado a la hoja.
-const SHEET_NAME = 'Tasks'; // Nombre de la hoja donde se guardan las tareas.
-const SECRET_PASSWORD = '4865'; // Contraseña para crear, editar y eliminar tareas.
+const SPREADSHEET_ID = '';          // Dejar vacío si el script está vinculado
+const SHEET_NAME     = 'Tasks';      // Hoja con datos
+const SECRET_PASSWORD = '4865';      // Contraseña
 
 // =================================================================
 // SERVIDOR WEB Y UTILIDADES
 // =================================================================
-
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
     .setTitle('Tablero LIDE')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
-
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
@@ -26,7 +24,6 @@ function include(filename) {
 // =================================================================
 // API - FUNCIONES LLAMADAS DESDE EL FRONTEND
 // =================================================================
-
 function apiGetTasks() {
   try {
     const sh = _getSheet();
@@ -46,11 +43,10 @@ function apiGetTasks() {
       createdAt: row[6] instanceof Date ? row[6].toISOString() : row[6],
       updatedAt: row[7] instanceof Date ? row[7].toISOString() : row[7],
       order: Number(row[8]) || (i + 1),
-      needsReview: row[9] === true // Lee desde la columna J
+      needsReview: row[9] === true
     }));
 
     return tasks.filter(task => task.id);
-
   } catch (error) {
     console.error('ERROR en apiGetTasks:', error.stack);
     throw new Error('No se pudieron cargar las tareas.');
@@ -60,14 +56,13 @@ function apiGetTasks() {
 function apiCreateTask(data) {
   try {
     if (!data || data.password !== SECRET_PASSWORD) throw new Error('Contraseña incorrecta.');
-    
     const task = data.task;
     if (!task || !task.title) throw new Error('El título es obligatorio.');
-    
+
     const sh = _getSheet();
     const newId = _getNextId(sh);
     const now = new Date();
-    
+
     sh.appendRow([
       newId,
       task.title,
@@ -78,11 +73,10 @@ function apiCreateTask(data) {
       now, // CreatedAt
       now, // UpdatedAt
       1,   // Order
-      task.needsReview === true // CAMBIO: Se guarda el valor del checkbox
+      task.needsReview === true
     ]);
-    
+
     return { id: newId };
-    
   } catch (error) {
     console.error('Error en apiCreateTask:', error);
     throw new Error(error.message);
@@ -92,30 +86,24 @@ function apiCreateTask(data) {
 function apiUpdateTask(data) {
   try {
     if (!data || data.password !== SECRET_PASSWORD) throw new Error('Contraseña incorrecta.');
-    
     const task = data.task;
-    if (!task.id) throw new Error('ID de tarea requerido.');
+    if (!task || !task.id) throw new Error('ID requerido.');
 
     const sh = _getSheet();
     const finder = sh.getRange('A:A').createTextFinder(String(task.id)).matchEntireCell(true).findNext();
-    
     if (!finder) throw new Error('Tarea no encontrada.');
-    
+
     const row = finder.getRow();
-    
     sh.getRange(row, 2, 1, 5).setValues([[
-        task.title,
-        task.description,
-        normalizeStatus_(task.status),
-        normalizePriority_(task.priority),
-        task.assignee
+      task.title,
+      task.description,
+      normalizeStatus_(task.status),
+      normalizePriority_(task.priority),
+      task.assignee
     ]]);
     sh.getRange(row, 8).setValue(new Date()); // UpdatedAt
-    // CAMBIO: Se actualiza la columna de la bandera de revisión
-    sh.getRange(row, 10).setValue(task.needsReview === true); 
-    
+    sh.getRange(row, 10).setValue(task.needsReview === true);
     return { ok: true };
-    
   } catch (error) {
     console.error('Error en apiUpdateTask:', error);
     throw new Error(error.message);
@@ -126,15 +114,11 @@ function apiMoveTask(id, newStatus) {
   try {
     const sh = _getSheet();
     const finder = sh.getRange('A:A').createTextFinder(String(id)).matchEntireCell(true).findNext();
-
     if (!finder) throw new Error('Tarea no encontrada.');
-    
     const row = finder.getRow();
     sh.getRange(row, 4).setValue(normalizeStatus_(newStatus));
     sh.getRange(row, 8).setValue(new Date());
-    
     return { ok: true };
-    
   } catch (error) {
     console.error('Error en apiMoveTask:', error);
     throw new Error(error.message);
@@ -144,81 +128,59 @@ function apiMoveTask(id, newStatus) {
 function apiDeleteTask(data) {
   try {
     if (!data || data.password !== SECRET_PASSWORD) throw new Error('Contraseña incorrecta.');
-    
     const id = data.id;
     const sh = _getSheet();
     const finder = sh.getRange('A:A').createTextFinder(String(id)).matchEntireCell(true).findNext();
-
     if (!finder) throw new Error('Tarea no encontrada.');
-    
     sh.deleteRow(finder.getRow());
     return { ok: true };
-    
   } catch (error) {
     console.error('Error en apiDeleteTask:', error);
     throw new Error(error.message);
   }
 }
 
-function apiAssignTaskToUser(taskId, userName) {
+/**
+ * NUEVO: Archiva todas las tareas con estado "Done".
+ * Las mueve a estado "Historico" (o al valor recibido en newStatus).
+ * Requiere contraseña. Devuelve { count }.
+ */
+function apiArchiveDone(data) {
   try {
-    if (!taskId || !userName) throw new Error('Se requiere ID y nombre.');
-    
+    if (!data || data.password !== SECRET_PASSWORD) throw new Error('Contraseña incorrecta.');
+    const target = normalizeStatus_(data.newStatus || 'Historico'); // normaliza por si mandan “almacen”
     const sh = _getSheet();
-    const finder = sh.getRange('A:A').createTextFinder(String(taskId)).matchEntireCell(true).findNext();
+    const lastRow = sh.getLastRow();
+    if (lastRow <= 1) return { count: 0 };
 
-    if (!finder) throw new Error('Tarea no encontrada.');
-    
-    const row = finder.getRow();
-    const assigneeRange = sh.getRange(row, 6);
-    let currentAssignees = assigneeRange.getValue().toString().trim();
-    
-    const assigneesList = currentAssignees.split(',').map(name => name.trim()).filter(Boolean);
-    if (assigneesList.includes(userName)) return { ok: true };
-    
-    const newAssignees = currentAssignees ? `${currentAssignees}, ${userName}` : userName;
-    
-    assigneeRange.setValue(newAssignees);
-    sh.getRange(row, 8).setValue(new Date());
-    
-    return { ok: true };
-    
+    const range = sh.getRange(2, 1, lastRow - 1, sh.getLastColumn());
+    const values = range.getValues();
+    let count = 0, now = new Date();
+
+    for (let i = 0; i < values.length; i++) {
+      const status = String(values[i][3] || '').toLowerCase();
+      if (status === 'done') {
+        values[i][3] = target; // Status -> Historico
+        values[i][7] = now;    // UpdatedAt
+        count++;
+      }
+    }
+
+    range.setValues(values);
+    return { count };
   } catch (error) {
-    console.error('Error en apiAssignTaskToUser:', error);
-    throw new Error(error.message);
-  }
-}
-
-function apiToggleReviewFlag(taskId) {
-  try {
-    const sh = _getSheet();
-    const finder = sh.getRange('A:A').createTextFinder(String(taskId)).matchEntireCell(true).findNext();
-
-    if (!finder) throw new Error('Tarea no encontrada.');
-    
-    const row = finder.getRow();
-    const flagRange = sh.getRange(row, 10);
-    const currentValue = flagRange.getValue();
-    
-    flagRange.setValue(!currentValue);
-    sh.getRange(row, 8).setValue(new Date());
-    
-    return { ok: true, newState: !currentValue };
-    
-  } catch (error) {
-    console.error('Error en apiToggleReviewFlag:', error);
+    console.error('Error en apiArchiveDone:', error);
     throw new Error(error.message);
   }
 }
 
 // =================================================================
-// FUNCIONES AUXILIARES INTERNAS (Helpers)
+// HOJA Y UTILIDADES
 // =================================================================
-
 function _getSpreadsheet() {
   return SPREADSHEET_ID
     ? SpreadsheetApp.openById(SPREADSHEET_ID)
-    : SpreadsheetApp.getActiveSpreadsheet();
+    : SpreadsheetApp.getActive();
 }
 
 function _getSheet() {
@@ -226,7 +188,7 @@ function _getSheet() {
   let sh = ss.getSheetByName(SHEET_NAME);
 
   const requiredHeaders = [
-    'ID', 'Title', 'Description', 'Status', 'Priority', 
+    'ID', 'Title', 'Description', 'Status', 'Priority',
     'Assignee', 'CreatedAt', 'UpdatedAt', 'Order', 'NeedsReview'
   ];
 
@@ -237,13 +199,18 @@ function _getSheet() {
     sh.setFrozenRows(1);
   } else {
     const currentHeaders = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
-    requiredHeaders.forEach((header, i) => {
-      if (currentHeaders[i] !== header) {
-        sh.getRange(1, i + 1).setValue(header);
-      }
-    });
+    // Auto-reparación de encabezados
+    if (currentHeaders.length < requiredHeaders.length ||
+        requiredHeaders.some((h, i) => currentHeaders[i] !== h)) {
+      sh.getRange(1, 1, 1, requiredHeaders.length).setValues([requiredHeaders])
+        .setFontWeight('bold').setBackground('#f0f0f0');
+      sh.setFrozenRows(1);
+    }
   }
-  
+  // Asegura al menos 10 columnas
+  if (sh.getLastColumn() < requiredHeaders.length) {
+    sh.insertColumnsAfter(sh.getLastColumn(), requiredHeaders.length - sh.getLastColumn());
+  }
   return sh;
 }
 
@@ -257,7 +224,20 @@ function _getNextId(sh) {
 
 function normalizeStatus_(s) {
   const key = String(s || '').toLowerCase().trim();
-  const map = {'backlog': 'Backlog', 'in progress': 'In Progress', 'in-progress': 'In Progress', 'review': 'Review', 'done': 'Done'};
+  const map = {
+    'backlog': 'Backlog',
+    'in progress': 'In Progress',
+    'in-progress': 'In Progress',
+    'review': 'Review',
+    'done': 'Done',
+    // Nuevos sinónimos de archivo/almacén
+    'historico': 'Historico',
+    'histórico': 'Historico',
+    'almacen': 'Historico',
+    'almacén': 'Historico',
+    'archive': 'Historico',
+    'archived': 'Historico'
+  };
   return map[key] || 'Backlog';
 }
 
@@ -270,7 +250,6 @@ function normalizePriority_(p) {
 // =================================================================
 // MENÚ DE LA HOJA DE CÁLCULO
 // =================================================================
-
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Tablero LIDE')

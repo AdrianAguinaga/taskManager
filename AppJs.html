@@ -7,6 +7,7 @@
   let descModal; // modal de descripción expandida
   const columns = {};
   let tasks = [];
+  let dragging = null; // { card: HTMLElement, fromStatus: string }
 
   const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -513,4 +514,188 @@
     );
   }
 })();
+
+// === Editor modal para la descripción (versión estable) ===
+(function(){
+  let editorModal, isEditorOpen = false, suppressFocus = false, currentTextarea = null;
+
+  function ensureEditor(){
+    if (editorModal) return editorModal;
+    editorModal = document.createElement('dialog');
+    editorModal.id = 'editorModal';
+    editorModal.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;border-bottom:1px solid #444">
+        <strong>Editor de descripción</strong>
+        <div style="display:flex;gap:8px">
+          <button type="button" class="btn" id="edrLinkBtn">Link</button>
+          <button type="button" class="btn primary" id="edrSaveBtn">Guardar</button>
+          <button type="button" class="btn" id="edrCancelBtn">Cancelar</button>
+        </div>
+      </div>
+      <div id="editorArea" contenteditable="true"
+           style="min-height:50vh;padding:16px;white-space:pre-wrap;line-height:1.5;outline:none"></div>
+    `;
+    document.body.appendChild(editorModal);
+
+    // Eventos de los botones (con preventDefault y stopPropagation)
+    editorModal.querySelector('#edrSaveBtn').addEventListener('click', (e)=>{
+      e.preventDefault(); e.stopPropagation();
+      closeEditor(true);
+    });
+    editorModal.querySelector('#edrCancelBtn').addEventListener('click', (e)=>{
+      e.preventDefault(); e.stopPropagation();
+      closeEditor(false);
+    });
+    editorModal.querySelector('#edrLinkBtn').addEventListener('click', (e)=>{
+      e.preventDefault(); e.stopPropagation();
+      const url = prompt('Pega la URL (https://...)');
+      if (!url) return;
+      insertTextAtCaret(' ' + url + ' ');
+    });
+    return editorModal;
+  }
+
+  function openEditor(textarea){
+    if (isEditorOpen) return;
+    currentTextarea = textarea;
+    const modal = ensureEditor();
+    modal.querySelector('#editorArea').innerText = textarea.value || '';
+    isEditorOpen = true;
+    modal.showModal();
+  }
+
+  function closeEditor(save){
+    if (!editorModal) return;
+    if (save && currentTextarea) {
+      const txt = editorModal.querySelector('#editorArea').innerText.replace(/\u00A0/g,' ');
+      currentTextarea.value = txt; // guardamos texto plano
+    }
+    try { editorModal.close(); } catch(_) { editorModal.removeAttribute('open'); }
+    isEditorOpen = false;
+    // Evita que el foco de regreso al textarea vuelva a abrir el editor
+    suppressFocus = true;
+    setTimeout(()=>{ suppressFocus = false; currentTextarea = null; }, 250);
+  }
+
+  // Inserta texto en la posición del cursor dentro del editor
+  function insertTextAtCaret(text){
+    const area = editorModal.querySelector('#editorArea');
+    area.focus();
+    const sel = window.getSelection && window.getSelection();
+    if (sel && sel.rangeCount) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(document.createTextNode(text));
+      // Colocar el cursor al final
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } else {
+      area.appendChild(document.createTextNode(text));
+    }
+  }
+
+  // 👉 Abrimos SOLO con click (quitamos el focusin que reabría el editor)
+  document.addEventListener('click', (ev) => {
+    const t = ev.target;
+    if (t && t.id === 'description' && t.tagName === 'TEXTAREA') {
+      if (isEditorOpen || suppressFocus) return;
+      ev.preventDefault();
+      openEditor(t);
+    }
+  });
+
+  // (Opcional) si tenías un botón "Abrir editor", seguirá funcionando:
+  window.openEditor = openEditor;
+})();
+
+function renderCard(t){
+  const card = document.createElement('article');
+  card.className = 'task';
+  card.draggable = true;
+  card.dataset.id = String(t.id);
+  card.dataset.status = String(t.status || 'Backlog');
+
+  const flag = (t.needsReview ? `<span class="flag" title="Necesita corrección">⚑</span>` : '');
+  const safeTitle = escapeHTML(t.title || '');
+  card.innerHTML = `
+    <header class="task-hd">
+      <h4 class="task-title">${safeTitle} ${flag}</h4>
+      <button class="btn-icon assign" title="Asignarme" data-id="${t.id}">👤</button>
+    </header>
+    <div class="task-desc">${linkifyHTML(escapeHTML(t.description || ''))}</div>
+    <footer class="task-ft">
+      <span class="pill ${String(t.priority||'Medium').toLowerCase()}">${t.priority||'Medium'}</span>
+      <span class="assignee">${renderAssignee(t.assignee||'')}</span>
+    </footer>
+  `;
+
+  // Asignarme
+  card.querySelector('.assign')?.addEventListener('click', () => onAssign(t.id));
+
+  // Descripción ampliada
+  card.querySelector('.task-desc')?.addEventListener('click', () => {
+    $('#descBody', document).innerHTML = linkifyHTML(escapeHTML(t.description || ''));
+    document.getElementById('descModal').showModal();
+  });
+
+  // Drag start: recordamos desde qué status salió
+  card.addEventListener('dragstart', ev => {
+    dragging = { card, fromStatus: String(t.status || 'Backlog') };
+    ev.dataTransfer.setData('text/plain', String(t.id));
+    ev.dataTransfer.effectAllowed = 'move';
+  });
+  card.addEventListener('dragend', () => { dragging = null; });
+
+  enableDropzones(); // se auto-protege para no duplicar listeners
+  return card;
+}
+
+function enableDropzones(){
+  document.querySelectorAll('.col-body').forEach(zone => {
+    if (zone.dataset.dndBound === '1') return; // evita duplicados
+    zone.dataset.dndBound = '1';
+
+    zone.addEventListener('dragover', e => e.preventDefault());
+    zone.addEventListener('dragenter', () => zone.classList.add('drop-hover'));
+    zone.addEventListener('dragleave', () => zone.classList.remove('drop-hover'));
+
+    zone.addEventListener('drop', e => {
+      e.preventDefault();
+      zone.classList.remove('drop-hover');
+
+      const id = Number(e.dataTransfer.getData('text/plain') || 0);
+      const section = zone.closest('section');
+      const newStatus = section?.getAttribute('data-status') || 'Backlog';
+      if (!id) return;
+
+      // UI optimista: mover tarjeta
+      const card = dragging?.card ?? [...board.querySelectorAll('.task')].find(el => el.dataset.id == String(id));
+      if (card) zone.appendChild(card);
+
+      // Persistir en backend
+      persistMove(id, newStatus, dragging);
+      dragging = null;
+    });
+  });
+}
+
+function persistMove(id, newStatus, dragInfo){
+  const fromStatus = dragInfo?.fromStatus;
+  const cardEl = dragInfo?.card;
+
+  google.script.run
+    .withSuccessHandler(() => {
+      // refrescamos para asegurar consistencia (y actualizar colores / banderas)
+      refresh();
+    })
+    .withFailureHandler(err => {
+      alert('No se pudo mover: ' + (err.message || err));
+      // Revertir visualmente si teníamos el origen
+      if (cardEl && fromStatus && columns[fromStatus]) {
+        columns[fromStatus].appendChild(cardEl);
+      }
+    })
+    .apiMoveTaskStatus(Number(id), newStatus);
+}
 </script>

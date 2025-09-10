@@ -235,4 +235,34 @@ dialog#descModal{
 
 /* UX drag global */
 body.dragging{ user-select:none; cursor:grabbing; }
+
+#editorModal {
+  width: min(900px, 96vw);
+  max-height: 90vh;
+  border: 1px solid #444;
+  border-radius: 12px;
+  background: var(--panel, #1f2937);
+  color: var(--ink, #f9fafb);
+  padding: 0;
+}
+#editorModal::backdrop { background: #0008; }
+#editorModal .btn {
+  border: 1px solid var(--border, #374151);
+  background: var(--panel, #1f2937);
+  color: var(--ink, #f9fafb);
+  padding: 6px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+#editorModal .btn.primary {
+  background: var(--accent, #34d399);
+  color: #06251b;
+  border-color: transparent;
+}
+
+.col-body.drop-hover { outline: 2px dashed var(--accent); outline-offset: -6px; }
+.task { cursor: grab; }
+.task:active { cursor: grabbing; }
+
+
 </style>
